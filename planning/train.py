@@ -217,6 +217,11 @@ def run(cfg):
         ),
     )
 
+    # stable_pretraining>=0.1.6 requires LinearWarmupCosineAnnealingLR's
+    # warmup_steps / max_steps to be given explicitly (no defaults). The
+    # scheduler steps once per epoch (interval below), so the units are epochs.
+    max_epochs = int(cfg.trainer.max_epochs)
+    warmup_epochs = int(cfg.get("scheduler", {}).get("warmup_epochs", 1))
     module_kwargs = {
         "model": world_model,
         "forward": partial(forward_step, cfg=cfg),
@@ -224,7 +229,11 @@ def run(cfg):
             "model_opt": {
                 "modules": "model",
                 "optimizer": dict(cfg.optimizer),
-                "scheduler": "LinearWarmupCosineAnnealingLR",
+                "scheduler": {
+                    "type": "LinearWarmupCosineAnnealingLR",
+                    "warmup_steps": warmup_epochs,
+                    "max_steps": max_epochs,
+                },
                 "interval": "epoch",
             }
         },

@@ -35,6 +35,11 @@ optimizer:
   lr: 1e-4
   weight_decay: 1e-3
 
+# LinearWarmupCosineAnnealingLR steps per epoch (see optim.interval in train.py).
+# Units are epochs; max_steps is taken from trainer.max_epochs.
+scheduler:
+  warmup_epochs: 1
+
 wandb:
   enabled: true
   log_config: false
