@@ -108,6 +108,58 @@ class InverseModel(nn.Module):
 
 
 # ──────────────────────────────────────────────────────────────────
+#  Policy model (regularizer variant of the inverse model)
+# ──────────────────────────────────────────────────────────────────
+
+class PolicyModel(nn.Module):
+    """
+    Predicts the *next* action  â_{t+1} = π(z_t, z_{t+1}[, a_t]).
+
+    Drop-in replacement for InverseModel as the anti-collapse regularizer.
+    Unlike the inverse model — which recovers the action that *caused* the
+    transition and is therefore always identifiable — this predicts a *future*
+    action. That target is only informative when the data's behaviour policy is
+    state-conditioned (a_{t+1} = π(s_{t+1})). Under i.i.d. random actions
+    (the default StructuredDotWorld / SpriteWorld sampling) a_{t+1} is
+    independent of the inputs, the network can only output the mean, and the
+    encoder receives no anti-collapse gradient.
+
+    If ``use_action`` is True, a_t is concatenated to the input. Watch the
+    shortcut: when a_{t+1} correlates with a_t, the model can copy a_t and
+    ignore z, again removing the pressure on the encoder.
+    """
+
+    def __init__(self, latent_dim: int = 64, action_dim: int = 2,
+                 hidden_dim: int = 256, use_action: bool = True):
+        super().__init__()
+        self.use_action = bool(use_action)
+        in_dim = 2 * latent_dim + (action_dim if self.use_action else 0)
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim),
+        )
+
+    def forward(self, z: torch.Tensor, z_next: torch.Tensor,
+                a: torch.Tensor | None = None) -> torch.Tensor:
+        """
+        Args:
+            z:      (B, latent_dim) — current embedding.
+            z_next: (B, latent_dim) — next embedding.
+            a:      (B, action_dim) — current action, required iff use_action.
+        Returns:
+            (B, action_dim) predicted next action (unbounded).
+        """
+        parts = [z, z_next]
+        if self.use_action:
+            assert a is not None, "use_action=True but a was not provided"
+            parts.append(a)
+        return self.net(torch.cat(parts, dim=-1))
+
+
+# ──────────────────────────────────────────────────────────────────
 #  Probe decoder
 # ──────────────────────────────────────────────────────────────────
 

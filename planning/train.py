@@ -20,7 +20,7 @@ from lightning.pytorch.loggers import CSVLogger, WandbLogger
 from omegaconf import OmegaConf, open_dict
 
 from jepa import JEPA
-from module import ARPredictor, Embedder, InverseModel, MLP, SIGReg
+from module import ARPredictor, Embedder, InverseModel, MLP, PolicyModel, SIGReg
 from utils import (
     ModelObjectCallBack,
     ResizeCompat,
@@ -52,6 +52,8 @@ def configure_external_callbacks(enabled: bool) -> None:
 def forward_step(self, batch, stage, cfg):
     lambd_sigreg = cfg.loss.sigreg.weight
     lambd_inv = cfg.loss.inverse.weight
+    lambd_policy = cfg.loss.get("policy", {}).get("weight", 0.0)
+    policy_use_action = bool(cfg.loss.get("policy", {}).get("use_action", True))
     history_size = int(cfg.wm.get("history_size", 1))
     required_steps = history_size + 1
 
@@ -80,6 +82,23 @@ def forward_step(self, batch, stage, cfg):
         pred_actions = self.model.predict_action(z_t, z_tp1)
         output["inv_loss"] = (pred_actions - actions).pow(2).mean()
         output["loss"] = output["loss"] + lambd_inv * output["inv_loss"]
+
+    if lambd_policy:
+        # Policy regularizer: a_{t+1} = pi(z_t, z_{t+1}[, a_t]).
+        # For step i, input (emb[i], emb[i+1], action[i]), target action[i+1].
+        if emb.size(1) < 2:
+            raise ValueError(
+                f"Batch sequence length {emb.size(1)} is too short for the "
+                "policy regularizer; need at least 2 steps to supervise a_{t+1}."
+            )
+        z_t = emb[:, :-1]
+        z_tp1 = emb[:, 1:]
+        a_t = batch["action"][:, :-1]
+        a_tp1 = batch["action"][:, 1:]
+        a_in = a_t if policy_use_action else None
+        pred_next = self.model.predict_next_action(z_t, z_tp1, a_in)
+        output["policy_loss"] = (pred_next - a_tp1).pow(2).mean()
+        output["loss"] = output["loss"] + lambd_policy * output["policy_loss"]
 
     if lambd_sigreg:
         output["sigreg_loss"] = self.sigreg(emb.transpose(0, 1))
@@ -189,6 +208,12 @@ def run(cfg):
             embed_dim=embed_dim,
             action_dim=effective_act_dim,
             hidden_dim=cfg.inverse.get("hidden_dim", 256),
+        ),
+        policy_model=PolicyModel(
+            embed_dim=embed_dim,
+            action_dim=effective_act_dim,
+            hidden_dim=cfg.loss.get("policy", {}).get("hidden_dim", 256),
+            use_action=bool(cfg.loss.get("policy", {}).get("use_action", True)),
         ),
     )
 

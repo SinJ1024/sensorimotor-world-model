@@ -28,7 +28,7 @@ os.environ.setdefault("REPO_ROOT", str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT))
 
 from jepa import JEPA
-from module import ARPredictor, Embedder, InverseModel, MLP
+from module import ARPredictor, Embedder, InverseModel, MLP, PolicyModel
 from utils import load_composed_config
 
 
@@ -69,6 +69,12 @@ def build_jepa(cfg):
             embed_dim=embed_dim,
             action_dim=effective_act_dim,
             hidden_dim=cfg.inverse.get("hidden_dim", 256),
+        ),
+        policy_model=PolicyModel(
+            embed_dim=embed_dim,
+            action_dim=effective_act_dim,
+            hidden_dim=cfg.loss.get("policy", {}).get("hidden_dim", 256),
+            use_action=bool(cfg.loss.get("policy", {}).get("use_action", True)),
         ),
     )
 

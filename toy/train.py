@@ -22,7 +22,7 @@ from datasets.sprite_world import (
     SpriteWorldConfig,
     SpriteWorldDataset,
 )
-from models import CNNEncoder, ForwardModel, InverseModel
+from models import CNNEncoder, ForwardModel, InverseModel, PolicyModel
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -123,22 +123,35 @@ def materialize(ds) -> TensorDataset:
     return TensorDataset(*(torch.stack(c) for c in cols))
 
 
-def build_loaders(ds_cfg, world_cfg, DatasetClass, seed, batch_size):
+def build_loaders(ds_cfg, world_cfg, DatasetClass, seed, batch_size,
+                  next_action=False, policy_gain=0.5):
     """Train + eval DataLoaders over once-rendered datasets (disjoint seeds)."""
     def loader(num_samples, ds_seed, shuffle):
-        ds = materialize(DatasetClass(world_cfg, num_samples=num_samples, seed=ds_seed))
+        ds = materialize(DatasetClass(
+            world_cfg, num_samples=num_samples, seed=ds_seed,
+            next_action=next_action, policy_gain=policy_gain,
+        ))
         return DataLoader(ds, batch_size=batch_size, shuffle=shuffle)
     return (loader(int(ds_cfg["train_samples"]), seed, True),
             loader(int(ds_cfg["eval_samples"]), seed + 999, False))
 
 
-def build_models(m_cfg, image_size, action_dim, device):
-    """Construct (encoder, forward, inverse); order fixed for seed reproducibility."""
+def build_models(m_cfg, image_size, action_dim, device,
+                 reg_type="inverse", policy_use_action=True):
+    """Construct (encoder, forward, regularizer); order fixed for seed
+    reproducibility. The third model is the anti-collapse regularizer: an
+    InverseModel (recovers a_t) or a PolicyModel (predicts a_{t+1})."""
     latent_dim, hidden_dim = int(m_cfg["latent_dim"]), int(m_cfg["hidden_dim"])
     encoder = CNNEncoder(latent_dim=latent_dim, image_size=image_size).to(device)
     fwd_model = ForwardModel(latent_dim=latent_dim, action_dim=action_dim, hidden_dim=hidden_dim).to(device)
-    inv_model = InverseModel(latent_dim=latent_dim, action_dim=action_dim, hidden_dim=hidden_dim).to(device)
-    return encoder, fwd_model, inv_model
+    if reg_type == "policy":
+        reg_model = PolicyModel(latent_dim=latent_dim, action_dim=action_dim,
+                                hidden_dim=hidden_dim, use_action=policy_use_action).to(device)
+    elif reg_type == "inverse":
+        reg_model = InverseModel(latent_dim=latent_dim, action_dim=action_dim, hidden_dim=hidden_dim).to(device)
+    else:
+        raise ValueError(f"Unknown training.reg_type: {reg_type!r} (expected 'inverse' or 'policy')")
+    return encoder, fwd_model, reg_model
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -167,17 +180,26 @@ def encode_pair(encoder, obs_t, obs_tp1):
 
 
 def compute_losses(models, batch, action_scale, has_action, device):
-    """Forward + inverse MSE for one batch — the single definition used by
-    both training and eval. An action-free world (sprite 'none' / all-random
-    structured) has no inverse signal, hence no anti-collapse pressure."""
-    encoder, fwd_model, inv_model = models
-    obs_t, action, obs_tp1, _ = batch
-    obs_t, obs_tp1, action = obs_t.to(device), obs_tp1.to(device), action.to(device)
+    """Forward + regularizer MSE for one batch — the single definition used by
+    both training and eval. The third model is either an InverseModel (target
+    a_t, recovered from (z_t, z_{t+1})) or a PolicyModel (target a_{t+1}, the
+    5th batch element, predicted from (z_t, z_{t+1}[, a_t])). An action-free
+    world (sprite 'none' / all-random structured) has no regularizer signal,
+    hence no anti-collapse pressure."""
+    encoder, fwd_model, reg_model = models
+    obs_t, action, obs_tp1 = batch[0].to(device), batch[1].to(device), batch[2].to(device)
     z_t, z_tp1 = encode_pair(encoder, obs_t, obs_tp1)
     a = action / action_scale if has_action else action
     l_fwd = F.mse_loss(fwd_model(z_t, a), z_tp1)
-    l_inv = F.mse_loss(inv_model(z_t, z_tp1), a) if has_action else torch.zeros((), device=device)
-    return l_fwd, l_inv, z_t, z_tp1
+    if not has_action:
+        l_reg = torch.zeros((), device=device)
+    elif isinstance(reg_model, PolicyModel):
+        a_tp1 = batch[4].to(device) / action_scale
+        a_in = a if reg_model.use_action else None
+        l_reg = F.mse_loss(reg_model(z_t, z_tp1, a_in), a_tp1)
+    else:
+        l_reg = F.mse_loss(reg_model(z_t, z_tp1), a)
+    return l_fwd, l_reg, z_t, z_tp1
 
 
 @torch.inference_mode()
@@ -208,12 +230,13 @@ def log_epoch(epoch, epochs, train_hist, eval_metrics):
 
 
 def save_outputs(run_dir, cfg, models, train_hist, eval_hist, snapshots, last_eval):
-    encoder, fwd_model, inv_model = models
+    encoder, fwd_model, reg_model = models
+    reg_key = "policy" if isinstance(reg_model, PolicyModel) else "inverse"
     (run_dir / "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
     torch.save({
         "encoder": encoder.state_dict(),
         "forward": fwd_model.state_dict(),
-        "inverse": inv_model.state_dict(),
+        reg_key: reg_model.state_dict(),
     }, run_dir / "model.pt")
     torch.save({"train": train_hist, "eval": eval_hist}, run_dir / "train_history.pt")
     torch.save({
@@ -241,6 +264,10 @@ def main() -> None:
     seed, epochs, batch_size = int(t_cfg["seed"]), int(t_cfg["epochs"]), int(t_cfg["batch_size"])
     lr, lam = float(t_cfg["lr"]), float(t_cfg["lambda"])
     eval_every = int(t_cfg.get("eval_every", 10))
+    reg_type = str(t_cfg.get("reg_type", "inverse")).lower()
+    policy_use_action = bool(t_cfg.get("policy_use_action", True))
+    policy_gain = float(t_cfg.get("policy_gain", 0.5))
+    next_action = reg_type == "policy"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -258,6 +285,12 @@ def main() -> None:
     print(f"Device       : {device}")
     print(f"Settings     : epochs={epochs} batch_size={batch_size} "
           f"action_dim={action_dim} latent_dim={m_cfg['latent_dim']} lambda={lam}")
+    print(f"Regularizer  : reg_type={reg_type} "
+          + (f"policy_use_action={policy_use_action} policy_gain={policy_gain}"
+             if reg_type == "policy" else "(inverse dynamics)"))
+    if reg_type == "policy" and has_action:
+        print("  NOTE: PolicyModel target a_{t+1} uses a state-conditioned "
+              "policy (toward canvas centre). a_t stays random.")
     print(world_cfg.describe())
 
     # Seed before any RNG draw; loaders consume none (numpy-seeded), models do.
@@ -266,8 +299,12 @@ def main() -> None:
         torch.cuda.manual_seed_all(seed)
 
     print("Materializing train + eval datasets ...")
-    train_loader, eval_loader = build_loaders(ds_cfg, world_cfg, DatasetClass, seed, batch_size)
-    models = build_models(m_cfg, world_cfg.image_size, action_dim, device)
+    train_loader, eval_loader = build_loaders(
+        ds_cfg, world_cfg, DatasetClass, seed, batch_size,
+        next_action=next_action, policy_gain=policy_gain,
+    )
+    models = build_models(m_cfg, world_cfg.image_size, action_dim, device,
+                          reg_type=reg_type, policy_use_action=policy_use_action)
     opt = optim.Adam([p for m in models for p in m.parameters()], lr=lr)
 
     train_hist = {"epoch": [], "fwd": [], "inv": [], "total": []}

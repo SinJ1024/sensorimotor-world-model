@@ -414,13 +414,49 @@ class StructuredDotWorldDataset(Dataset):
         config: Optional[StructuredDotWorldConfig] = None,
         num_samples: int = 10_000,
         seed: int = 0,
+        next_action: bool = False,
+        policy_gain: float = 0.5,
     ):
         self.config = config or make_combined_config()
         self.num_samples = num_samples
         self.seed = seed
+        # When True, __getitem__ additionally returns a_{t+1} = π(positions_{t+1})
+        # produced by a *state-conditioned* policy, so that the future action is
+        # predictable and the PolicyModel regularizer has an anti-collapse
+        # signal. a_t itself stays random (it drives the actual transition).
+        self.next_action = bool(next_action)
+        self.policy_gain = float(policy_gain)
         # Pre-compute fixed derived quantities.
         self._group_ranges: List[Tuple[int, int]] = self.config.group_ranges()
         self._color_indices: List[int] = _flat_color_indices(self.config)
+
+    def _policy_action(self, positions: np.ndarray) -> np.ndarray:
+        """State-conditioned target action for the controlled DOFs.
+
+        Proportional controller drifting every controlled dot toward the canvas
+        centre: a = clip(gain · (centre − pos), −max_disp, max_disp). The
+        output layout matches the ``action`` vector (INDEPENDENT dots and
+        COUPLED pairs contribute (dx, dy); STATIC / RANDOM contribute nothing),
+        so it is directly comparable to a_t.
+        """
+        cfg = self.config
+        centre = (cfg.image_size - 1) / 2.0
+        parts: List[np.ndarray] = []
+        for group, (start, end) in zip(cfg.groups, self._group_ranges):
+            md = group.max_displacement
+            if group.motion_type is MotionType.INDEPENDENT:
+                pos = positions[start:end].astype(np.float32)          # (n, 2)
+                a = np.clip(self.policy_gain * (centre - pos), -md, md)
+                parts.append(a.reshape(-1))
+            elif group.motion_type is MotionType.COUPLED:
+                for p_idx in range(group.num_pairs):
+                    pos = positions[start + 2 * p_idx].astype(np.float32)  # (2,)
+                    a = np.clip(self.policy_gain * (centre - pos), -md, md)
+                    parts.append(a)
+            # STATIC / RANDOM: uncontrolled, no action entry.
+        if parts:
+            return np.concatenate(parts).astype(np.float32)
+        return np.zeros(0, dtype=np.float32)
 
     # ── helpers ──────────────────────────────────────────────────
 
@@ -547,12 +583,16 @@ class StructuredDotWorldDataset(Dataset):
         obs_t   = render_dots(positions_t,   self._color_indices, self.config)
         obs_tp1 = render_dots(positions_tp1, self._color_indices, self.config)
 
-        return (
+        out = [
             torch.from_numpy(obs_t),
             torch.from_numpy(action),
             torch.from_numpy(obs_tp1),
             torch.from_numpy(positions_t.reshape(-1).astype(np.float32)),
-        )
+        ]
+        if self.next_action:
+            action_tp1 = self._policy_action(positions_tp1)
+            out.append(torch.from_numpy(action_tp1))
+        return tuple(out)
 
 
 # ─────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ class JEPA(nn.Module):
         projector=None,
         pred_proj=None,
         inverse_model=None,
+        policy_model=None,
     ):
         super().__init__()
         self.encoder = encoder
@@ -24,6 +25,7 @@ class JEPA(nn.Module):
         self.projector = projector or nn.Identity()
         self.pred_proj = pred_proj or nn.Identity()
         self.inverse_model = inverse_model
+        self.policy_model = policy_model
         image_size = getattr(getattr(self.encoder, "config", None), "image_size", None)
         if isinstance(image_size, int):
             self.image_size = (image_size, image_size)
@@ -87,6 +89,12 @@ class JEPA(nn.Module):
         """Predict action from consecutive embeddings using the inverse model."""
         assert self.inverse_model is not None, "No inverse model configured"
         return self.inverse_model(z_t, z_tp1)
+
+    def predict_next_action(self, z_t, z_tp1, a_t=None):
+        """Predict the next action a_{t+1} from (z_t, z_{t+1}[, a_t]) via the
+        policy model regularizer."""
+        assert self.policy_model is not None, "No policy model configured"
+        return self.policy_model(z_t, z_tp1, a_t)
 
     def rollout(self, info, action_sequence):
         """Rollout the model given an initial info dict and action sequence."""

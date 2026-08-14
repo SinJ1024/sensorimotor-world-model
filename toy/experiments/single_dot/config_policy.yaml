@@ -1,0 +1,20 @@
+# Single controlled dot, but the anti-collapse regularizer is the PolicyModel
+# (predict a_{t+1}) instead of the inverse model (recover a_t).
+#
+# The dataset supplies a_{t+1} from a state-conditioned policy (drift toward
+# the canvas centre), so the future action is a function of position and the
+# encoder is pushed to represent position. a_t stays random and drives the
+# actual transition, so there is no a_t -> a_{t+1} copy shortcut.
+#
+# Compare against config.yaml (inverse) to see whether the policy regularizer
+# also prevents collapse.
+defaults: [dot_base]
+dataset:
+  groups:
+    - {motion: independent, num_dots: 1}
+training:
+  reg_type: policy
+  policy_use_action: true   # input (z_t, z_{t+1}, a_t); set false for (z_t, z_{t+1})
+  policy_gain: 0.5
+output:
+  run_name: policy

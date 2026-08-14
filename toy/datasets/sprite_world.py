@@ -364,10 +364,32 @@ class SpriteWorldDataset(Dataset):
         config: Optional[SpriteWorldConfig] = None,
         num_samples: int = 10_000,
         seed: int = 0,
+        next_action: bool = False,
+        policy_gain: float = 0.5,
     ):
         self.config = config or SpriteWorldConfig()
         self.num_samples = num_samples
         self.seed = seed
+        # When True, __getitem__ additionally returns a_{t+1} = π(state_{t+1})
+        # from a state-conditioned policy (see StructuredDotWorldDataset), giving
+        # the PolicyModel regularizer a predictable target. a_t stays random.
+        self.next_action = bool(next_action)
+        self.policy_gain = float(policy_gain)
+
+    def _policy_action(self, state: np.ndarray) -> np.ndarray:
+        """State-conditioned target action over the controlled DOFs.
+
+        Proportional controller driving (x, y) toward the canvas centre and θ
+        toward 0 (with wrapped angular error), clipped to the per-DOF delta
+        range and masked to the controlled DOFs — same layout as ``action``.
+        """
+        cfg = self.config
+        centre = (cfg.image_size - 1) / 2.0
+        target = np.array([centre, centre, 0.0], dtype=np.float64)
+        diff = target - state
+        diff[2] = (diff[2] + np.pi) % (2.0 * np.pi) - np.pi   # shortest θ error
+        a = np.clip(self.policy_gain * diff, -cfg.delta_scale, cfg.delta_scale)
+        return a[cfg.control_mask].astype(np.float32)
 
     # ── helpers ──────────────────────────────────────────────────
 
@@ -417,12 +439,16 @@ class SpriteWorldDataset(Dataset):
         obs_t = render_sprite(state_t, self.config)
         obs_tp1 = render_sprite(state_tp1, self.config)
 
-        return (
+        out = [
             torch.from_numpy(obs_t),
             torch.from_numpy(action),
             torch.from_numpy(obs_tp1),
             torch.from_numpy(state_t.astype(np.float32)),
-        )
+        ]
+        if self.next_action:
+            action_tp1 = self._policy_action(state_tp1)
+            out.append(torch.from_numpy(action_tp1))
+        return tuple(out)
 
 
 # ─────────────────────────────────────────────────────────────────

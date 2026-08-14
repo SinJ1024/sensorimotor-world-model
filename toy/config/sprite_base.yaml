@@ -19,3 +19,9 @@ training:
   lr: 5e-4
   lambda: 10.0
   eval_every: 10
+  # See dot_base.yaml for the regularizer options.
+  #   inverse : â_t     = h(z_t, z_{t+1})
+  #   policy  : â_{t+1} = π(z_t, z_{t+1}[, a_t])
+  reg_type: inverse
+  policy_use_action: true
+  policy_gain: 0.5

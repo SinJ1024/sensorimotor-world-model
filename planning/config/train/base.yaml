@@ -72,6 +72,14 @@ loss:
       num_proj: 1024
   inverse:
     weight: 1.0
+  # Policy-model regularizer: a_{t+1} = pi(z_t, z_{t+1}[, a_t]).
+  # Only informative when the offline data comes from a state-conditioned
+  # behaviour policy; under random actions a_{t+1} is unpredictable and this
+  # term gives no anti-collapse signal. To "replace" the inverse model, set
+  # inverse.weight: 0.0 and policy.weight > 0.
+  policy:
+    weight: 0.0
+    use_action: true
 
 compile:
   enabled: false

@@ -229,6 +229,48 @@ class InverseModel(nn.Module):
         return self.net(torch.cat([z_t, z_tp1], dim=-1))
 
 
+class PolicyModel(nn.Module):
+    """Predicts the *next* action from consecutive latents (+ optional current
+    action): (z_t, z_{t+1}[, a_t]) -> a_{t+1}.
+
+    Regularizer variant of InverseModel. Whereas the inverse model recovers the
+    action that *caused* the transition (always identifiable, hence a reliable
+    anti-collapse signal), this model predicts the *future* action a_{t+1}. That
+    target is only informative when the data's behaviour policy is
+    state-conditioned (a_{t+1} = pi(s_{t+1})); under i.i.d. random actions
+    a_{t+1} is independent of the inputs and the term provides no gradient to
+    the encoder / no anti-collapse pressure.
+
+    When ``use_action`` is True the current action a_t is concatenated to the
+    input. Beware the shortcut this enables: if a_{t+1} correlates with a_t the
+    model can copy a_t and ignore z, again killing the anti-collapse pressure.
+    """
+
+    def __init__(self, embed_dim, action_dim, hidden_dim=256, use_action=True):
+        super().__init__()
+        self.use_action = bool(use_action)
+        in_dim = 2 * embed_dim + (action_dim if self.use_action else 0)
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim),
+        )
+
+    def forward(self, z_t, z_tp1, a_t=None):
+        """
+        z_t, z_tp1: (B, D) or (B, T, D)
+        a_t:        (B, action_dim) or (B, T, action_dim), required iff use_action
+        Returns: predicted next action a_{t+1}, same leading dims.
+        """
+        parts = [z_t, z_tp1]
+        if self.use_action:
+            assert a_t is not None, "use_action=True but a_t was not provided"
+            parts.append(a_t)
+        return self.net(torch.cat(parts, dim=-1))
+
+
 class SIGReg(torch.nn.Module):
     """Sketch Isotropic Gaussian Regularizer"""
 
