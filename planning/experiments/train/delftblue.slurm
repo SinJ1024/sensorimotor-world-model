@@ -37,7 +37,16 @@ fi
 module load 2025
 module load cuda
 
-EXP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# sbatch copies this script to a spool dir, so BASH_SOURCE/$0 does NOT point at
+# the repo. Use the submit directory (run this from planning/experiments/train).
+EXP_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+if [ ! -f "$EXP_DIR/run.sh" ]; then
+    echo "run.sh not found in '$EXP_DIR'." >&2
+    echo "Submit from the experiment dir, e.g.:" >&2
+    echo "  cd ~/sensorimotor-world-model/planning/experiments/train" >&2
+    echo "  sbatch --account=<acct> delftblue.slurm <run_name>" >&2
+    exit 1
+fi
 
 # --- storage: keep large / regenerable data off the 30 GB home quota ----------
 export EXTERNAL_DATA_ROOT="${EXTERNAL_DATA_ROOT:-/scratch/${USER}/smwm-data}"
