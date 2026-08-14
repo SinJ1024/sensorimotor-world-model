@@ -40,12 +40,18 @@ class Method:
     slug: str
     inverse_weight: float | None
     sigreg_weight: float
+    # Policy-model regularizer (predict a_{t+1}); None => reuse env.inverse_weight
+    # so the regularizer weight matches the inverse baseline for a fair A/B.
+    policy_weight: float | None = 0.0
+    policy_use_action: bool = True
 
 
 METHODS = (
     Method("forward-only", "forward_only", 0.0, 0.0),
     Method("inverse / ours", "inverse", None, 0.0),
     Method("sigreg", "sigreg", 0.0, SIGREG_WEIGHT),
+    # a_{t+1} policy regularizer, same lambda as the inverse baseline.
+    Method("policy (a_{t+1})", "policy", 0.0, 0.0, policy_weight=None),
 )
 
 
@@ -70,6 +76,9 @@ def run_name(env: Environment, method: Method, seed: int) -> str:
 def config_for_run(env: Environment, method: Method, seed: int) -> dict:
     inverse_weight = (
         env.inverse_weight if method.inverse_weight is None else method.inverse_weight
+    )
+    policy_weight = (
+        env.inverse_weight if method.policy_weight is None else method.policy_weight
     )
     name = run_name(env, method, seed)
     return {
@@ -110,6 +119,10 @@ def config_for_run(env: Environment, method: Method, seed: int) -> dict:
             },
             "inverse": {
                 "weight": inverse_weight,
+            },
+            "policy": {
+                "weight": policy_weight,
+                "use_action": method.policy_use_action,
             },
         },
         "final_training": {
