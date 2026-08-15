@@ -41,7 +41,7 @@ ENVIRONMENTS = (
     ),
 )
 
-LEARNED_METHODS = ("forward_only", "inverse", "sigreg")
+LEARNED_METHODS = ("forward_only", "inverse", "sigreg", "policy")
 METHODS = (*LEARNED_METHODS, "random")
 
 

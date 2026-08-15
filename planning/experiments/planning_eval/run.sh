@@ -9,7 +9,7 @@ export PATH="/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"
 if [ "$#" -ne 3 ]; then
     echo "Usage: $0 <env> <method> <seed_or_repeat>" >&2
     echo "  env: tworoom | reacher | pusht | ogbcube" >&2
-    echo "  method: forward_only | inverse | sigreg | random" >&2
+    echo "  method: forward_only | inverse | sigreg | policy | random" >&2
     echo "  seed_or_repeat: 0 | 1 | 2 | 3 | 4" >&2
     exit 2
 fi
@@ -27,7 +27,7 @@ case "$ENV_SLUG" in
 esac
 
 case "$METHOD" in
-    forward_only|inverse|sigreg|random) ;;
+    forward_only|inverse|sigreg|policy|random) ;;
     *)
         echo "Unsupported method=$METHOD" >&2
         exit 2
