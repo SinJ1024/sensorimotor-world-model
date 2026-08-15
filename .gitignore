@@ -21,6 +21,9 @@ build/
 venv/
 env/
 .env
+# ...but the broad `env/` above must not swallow the eval env configs.
+!planning/config/eval/env/
+!planning/config/eval/env/**
 
 # Jupyter
 .ipynb_checkpoints/

@@ -1,0 +1,16 @@
+# @package _global_
+#
+# TwoRoom planning-eval environment config.
+# (Reconstructed: the upstream repo shipped config/eval/base.yaml but not the
+#  per-env configs referenced by planning_eval/generate_configs.py.)
+
+world:
+  env_name: swm/TwoRoom-v1
+
+eval:
+  dataset_name: tworoom_eval
+
+dataset:
+  keys_to_cache:
+    - action
+    - proprio
