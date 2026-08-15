@@ -32,6 +32,31 @@ from module import ARPredictor, Embedder, InverseModel, MLP, PolicyModel
 from utils import load_composed_config
 
 
+# The le-wm TwoRoom eval dataset stores start/goal as numpy pos_agent/pos_target,
+# which the eval callables inject into the env's agent_position/target_position.
+# TwoRoomEnv.step() then does `agent_position + action_t * speed` mixing numpy with
+# torch and raises a TypeError. The injected positions are correct; only the dtype
+# is wrong (reset() keeps them as torch). Coerce to torch at step time.
+try:
+    import torch as _torch
+    from stable_worldmodel.envs.two_room.env import TwoRoomEnv as _TwoRoomEnv
+
+    _twm_orig_step = _TwoRoomEnv.step
+
+    def _twm_coerced_step(self, action):
+        ap = getattr(self, "agent_position", None)
+        tp = getattr(self, "target_position", None)
+        if ap is not None and not _torch.is_tensor(ap):
+            self.agent_position = _torch.as_tensor(ap, dtype=_torch.float32)
+        if tp is not None and not _torch.is_tensor(tp):
+            self.target_position = _torch.as_tensor(tp, dtype=_torch.float32)
+        return _twm_orig_step(self, action)
+
+    _TwoRoomEnv.step = _twm_coerced_step
+except Exception:
+    pass
+
+
 def build_jepa(cfg):
     encoder = spt.backbone.utils.vit_hf(
         cfg.encoder_scale,
