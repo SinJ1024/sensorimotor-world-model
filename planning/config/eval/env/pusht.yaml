@@ -1,0 +1,34 @@
+# @package _global_
+#
+# Push-T planning-eval environment config (matches upstream le-wm).
+#
+# The dataset only exposes a `state` column (N,7) = [agent_xy, block_xy,
+# block_rot, vel_xy], which is exactly what PushT._set_state expects; there are
+# no pos_* columns, so the _set_state/_set_goal_state mechanism is the only path.
+# `goal_state` is auto-derived by evaluate_from_dataset from the goal-step row.
+#
+# Column check (swm inspect pusht_expert_eval): state (N,7) present. Verified on
+# /scratch/.../pusht_expert_eval.h5.
+
+world:
+  env_name: swm/PushT-v1
+
+eval:
+  dataset_name: pusht_expert_eval
+  callables:
+    # -- set initial full sim state from the sampled start row
+    - method: _set_state
+      args:
+        state:
+          value: state
+    # -- set goal state from the row goal_offset_steps later (auto-derived col)
+    - method: _set_goal_state
+      args:
+        goal_state:
+          value: goal_state
+
+dataset:
+  keys_to_cache:
+    - action
+    - proprio
+    - state
