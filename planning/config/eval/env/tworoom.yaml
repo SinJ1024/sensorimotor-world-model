@@ -1,35 +1,28 @@
 # @package _global_
 #
-# TwoRoom planning-eval environment config (matches upstream le-wm).
-#
-# Both the dataset's `proprio` (agent xy) and `pos_agent`/`pos_target` columns
-# exist, so either callable mechanism resolves. We use le-wm's original
-# `_set_state`/`_set_goal_state` with proprio/goal_proprio because that makes the
-# success criterion (dist(agent, target_position)) match the goal *image* the
-# planner conditions on: the goal frame shows the agent at its position
-# goal_offset_steps later (== goal_proprio), NOT at the fixed pos_target marker.
-# `_set_state` also writes a torch tensor directly, so the numpy/torch step()
-# coercion patch in eval.py is a no-op here.
-#
-# Column check (swm inspect tworoom_eval): proprio (N,2) present; goal_proprio is
-# auto-derived by evaluate_from_dataset. Verified on /scratch/.../tworoom_eval.h5.
+# TwoRoom planning-eval environment config.
+# (Reconstructed: the upstream repo shipped config/eval/base.yaml but not the
+#  per-env configs referenced by planning_eval/generate_configs.py.)
 
 world:
   env_name: swm/TwoRoom-v1
 
 eval:
   dataset_name: tworoom_eval
+  # The le-wm TwoRoom dataset stores start/goal as pos_agent/pos_target (not the
+  # swm variation.* mechanism), and there is no seed column, so reset() would
+  # place the agent/target randomly. These callables set the env's runtime
+  # agent_position / target_position from the sampled dataset row before rollout.
+  # (Reconstructed — validate that inverse reproduces ~100% success.)
   callables:
-    # -- set initial agent state from the sampled start row
-    - method: _set_state
+    - method: set_wrapper_attr
       args:
-        state:
-          value: proprio
-    # -- set goal state from the row goal_offset_steps later (auto-derived col)
-    - method: _set_goal_state
+        name: {value: agent_position, in_dataset: false}
+        value: {value: pos_agent, in_dataset: true}
+    - method: set_wrapper_attr
       args:
-        goal_state:
-          value: goal_proprio
+        name: {value: target_position, in_dataset: false}
+        value: {value: pos_target, in_dataset: true}
 
 dataset:
   keys_to_cache:
