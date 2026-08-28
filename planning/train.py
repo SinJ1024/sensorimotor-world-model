@@ -84,20 +84,26 @@ def forward_step(self, batch, stage, cfg):
         output["loss"] = output["loss"] + lambd_inv * output["inv_loss"]
 
     if lambd_policy:
-        # Policy regularizer: a_{t+1} = pi(z_t, z_{t+1}[, a_t]).
-        # For step i, input (emb[i], emb[i+1], action[i]), target action[i+1].
-        if emb.size(1) < 2:
+        # Policy regularizer: predict the next k actions a_{t+1..t+k} from
+        # (z_t, z_{t+1}[, a_t]). k = loss.policy.num_future (k=1 = the original
+        # single-step version). Larger k gives a richer future-trajectory target.
+        k = int(cfg.loss.get("policy", {}).get("num_future", 1))
+        T = emb.size(1)
+        if T < k + 1:
             raise ValueError(
-                f"Batch sequence length {emb.size(1)} is too short for the "
-                "policy regularizer; need at least 2 steps to supervise a_{t+1}."
+                f"Batch sequence length {T} is too short for the policy "
+                f"regularizer with num_future={k}; need at least {k + 1} steps."
             )
-        z_t = emb[:, :-1]
-        z_tp1 = emb[:, 1:]
-        a_t = batch["action"][:, :-1]
-        a_tp1 = batch["action"][:, 1:]
+        z_t = emb[:, : T - k]
+        z_tp1 = emb[:, 1 : T - k + 1]
+        a_t = batch["action"][:, : T - k]
+        # next k actions at each start position -> (B, T-k, k, A)
+        a_future = torch.stack(
+            [batch["action"][:, 1 + j : 1 + j + (T - k)] for j in range(k)], dim=2
+        )
         a_in = a_t if policy_use_action else None
-        pred_next = self.model.predict_next_action(z_t, z_tp1, a_in)
-        output["policy_loss"] = (pred_next - a_tp1).pow(2).mean()
+        pred_next = self.model.predict_next_action(z_t, z_tp1, a_in)  # (B,T-k,k,A)
+        output["policy_loss"] = (pred_next - a_future).pow(2).mean()
         output["loss"] = output["loss"] + lambd_policy * output["policy_loss"]
 
     if lambd_sigreg:
@@ -118,7 +124,10 @@ def forward_step(self, batch, stage, cfg):
 @hydra.main(version_base=None, config_path=None, config_name=None)
 def run(cfg):
     history_size = int(cfg.wm.get("history_size", 1))
-    required_steps = history_size + 1
+    # The policy regularizer with num_future=k needs k+1 steps in each clip.
+    policy_cfg = cfg.loss.get("policy", {})
+    policy_k = int(policy_cfg.get("num_future", 1)) if policy_cfg.get("weight", 0.0) else 1
+    required_steps = max(history_size + 1, policy_k + 1)
     with open_dict(cfg):
         cfg.wm.history_size = history_size
         cfg.wm.num_preds = int(cfg.wm.get("num_preds", 1))
@@ -214,6 +223,7 @@ def run(cfg):
             action_dim=effective_act_dim,
             hidden_dim=cfg.loss.get("policy", {}).get("hidden_dim", 256),
             use_action=bool(cfg.loss.get("policy", {}).get("use_action", True)),
+            num_future=int(cfg.loss.get("policy", {}).get("num_future", 1)),
         ),
     )
 

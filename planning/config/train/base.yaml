@@ -85,6 +85,7 @@ loss:
   policy:
     weight: 0.0
     use_action: true
+    num_future: 1        # predict the next k actions a_{t+1..t+k} (k>1 = multi-step)
 
 compile:
   enabled: false

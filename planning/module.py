@@ -246,29 +246,33 @@ class PolicyModel(nn.Module):
     model can copy a_t and ignore z, again killing the anti-collapse pressure.
     """
 
-    def __init__(self, embed_dim, action_dim, hidden_dim=256, use_action=True):
+    def __init__(self, embed_dim, action_dim, hidden_dim=256, use_action=True,
+                 num_future=1):
         super().__init__()
         self.use_action = bool(use_action)
+        self.num_future = int(num_future)   # predict a_{t+1}, ..., a_{t+num_future}
+        self.action_dim = int(action_dim)
         in_dim = 2 * embed_dim + (action_dim if self.use_action else 0)
         self.net = nn.Sequential(
             nn.Linear(in_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, action_dim),
+            nn.Linear(hidden_dim, self.num_future * action_dim),
         )
 
     def forward(self, z_t, z_tp1, a_t=None):
         """
         z_t, z_tp1: (B, D) or (B, T, D)
         a_t:        (B, action_dim) or (B, T, action_dim), required iff use_action
-        Returns: predicted next action a_{t+1}, same leading dims.
+        Returns: predicted next actions, shape (..., num_future, action_dim).
         """
         parts = [z_t, z_tp1]
         if self.use_action:
             assert a_t is not None, "use_action=True but a_t was not provided"
             parts.append(a_t)
-        return self.net(torch.cat(parts, dim=-1))
+        out = self.net(torch.cat(parts, dim=-1))
+        return out.reshape(*out.shape[:-1], self.num_future, self.action_dim)
 
 
 class SIGReg(torch.nn.Module):

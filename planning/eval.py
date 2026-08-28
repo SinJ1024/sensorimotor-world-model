@@ -100,6 +100,7 @@ def build_jepa(cfg):
             action_dim=effective_act_dim,
             hidden_dim=cfg.loss.get("policy", {}).get("hidden_dim", 256),
             use_action=bool(cfg.loss.get("policy", {}).get("use_action", True)),
+            num_future=int(cfg.loss.get("policy", {}).get("num_future", 1)),
         ),
     )
 
