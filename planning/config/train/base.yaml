@@ -86,6 +86,9 @@ loss:
     weight: 0.0
     use_action: true
     num_future: 1        # predict the next k actions a_{t+1..t+k} (k>1 = multi-step)
+    context: 2           # latents fed to the head (2 = z_t,z_{t+1}; larger = longer window)
+    arch: mlp            # mlp | resmlp | gru | transformer | mamba
+    depth: 2             # layers for resmlp/gru/transformer/mamba
 
 compile:
   enabled: false

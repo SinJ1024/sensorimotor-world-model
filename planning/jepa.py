@@ -90,11 +90,11 @@ class JEPA(nn.Module):
         assert self.inverse_model is not None, "No inverse model configured"
         return self.inverse_model(z_t, z_tp1)
 
-    def predict_next_action(self, z_t, z_tp1, a_t=None):
-        """Predict the next action a_{t+1} from (z_t, z_{t+1}[, a_t]) via the
-        policy model regularizer."""
+    def predict_next_action(self, z_window, a_window=None):
+        """Predict the next actions from a window of latents (+ past actions)
+        via the policy-model regularizer."""
         assert self.policy_model is not None, "No policy model configured"
-        return self.policy_model(z_t, z_tp1, a_t)
+        return self.policy_model(z_window, a_window)
 
     def rollout(self, info, action_sequence):
         """Rollout the model given an initial info dict and action sequence."""

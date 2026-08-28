@@ -229,50 +229,150 @@ class InverseModel(nn.Module):
         return self.net(torch.cat([z_t, z_tp1], dim=-1))
 
 
+class _ResBlock(nn.Module):
+    def __init__(self, dim, mult=4):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.LayerNorm(dim), nn.Linear(dim, mult * dim), nn.GELU(),
+            nn.Linear(mult * dim, dim),
+        )
+
+    def forward(self, x):
+        return x + self.net(x)
+
+
+class _PolicyTransformerBlock(nn.Module):
+    def __init__(self, dim, heads=4, dim_head=32, mlp_dim=None):
+        super().__init__()
+        self.attn = Attention(dim, heads=heads, dim_head=dim_head)
+        self.ff = FeedForward(dim, mlp_dim or 4 * dim)
+
+    def forward(self, x):
+        x = x + self.attn(x, causal=True)
+        return x + self.ff(x)
+
+
+class _MambaBlock(nn.Module):
+    """Minimal pure-PyTorch selective SSM (Mamba) block — no custom CUDA kernel,
+    so it runs on any GPU; the scan is sequential (O(L), fine for short windows)."""
+
+    def __init__(self, dim, d_state=16, d_conv=4, expand=2):
+        super().__init__()
+        d_inner = expand * dim
+        self.d_state = d_state
+        self.norm = nn.LayerNorm(dim)
+        self.in_proj = nn.Linear(dim, 2 * d_inner)
+        self.conv = nn.Conv1d(d_inner, d_inner, d_conv, groups=d_inner, padding=d_conv - 1)
+        self.x_proj = nn.Linear(d_inner, 2 * d_state + 1)
+        self.dt_proj = nn.Linear(1, d_inner)
+        A = torch.arange(1, d_state + 1, dtype=torch.float32).repeat(d_inner, 1)
+        self.A_log = nn.Parameter(torch.log(A))
+        self.D = nn.Parameter(torch.ones(d_inner))
+        self.out_proj = nn.Linear(d_inner, dim)
+
+    def forward(self, x):
+        B, L, _ = x.shape
+        res = x
+        xz = self.in_proj(self.norm(x))
+        xin, z = xz.chunk(2, dim=-1)                                    # (B,L,d_inner)
+        xc = self.conv(xin.transpose(1, 2))[..., :L].transpose(1, 2)    # causal conv
+        xc = F.silu(xc)
+        dbl = self.x_proj(xc)
+        dt, Bm, Cm = dbl[..., :1], dbl[..., 1:1 + self.d_state], dbl[..., 1 + self.d_state:]
+        dt = F.softplus(self.dt_proj(dt))                              # (B,L,d_inner)
+        A = -torch.exp(self.A_log)                                     # (d_inner,d_state)
+        h = torch.zeros(B, xc.shape[-1], self.d_state, device=x.device, dtype=xc.dtype)
+        ys = []
+        for t in range(L):
+            dA = torch.exp(dt[:, t].unsqueeze(-1) * A)                 # (B,d_inner,d_state)
+            dBx = dt[:, t].unsqueeze(-1) * Bm[:, t].unsqueeze(1) * xc[:, t].unsqueeze(-1)
+            h = dA * h + dBx
+            ys.append((h * Cm[:, t].unsqueeze(1)).sum(-1))            # (B,d_inner)
+        y = torch.stack(ys, dim=1) + xc * self.D
+        return res + self.out_proj(y * F.silu(z))
+
+
 class PolicyModel(nn.Module):
-    """Predicts the *next* action from consecutive latents (+ optional current
-    action): (z_t, z_{t+1}[, a_t]) -> a_{t+1}.
+    """Regularizer head: predict the next ``num_future`` actions a_{t+1..t+k}
+    from a window of ``context`` latents ending at z_{t+1} (+ optional past
+    actions within the window). ``arch`` selects the sequence model.
 
-    Regularizer variant of InverseModel. Whereas the inverse model recovers the
-    action that *caused* the transition (always identifiable, hence a reliable
-    anti-collapse signal), this model predicts the *future* action a_{t+1}. That
-    target is only informative when the data's behaviour policy is
-    state-conditioned (a_{t+1} = pi(s_{t+1})); under i.i.d. random actions
-    a_{t+1} is independent of the inputs and the term provides no gradient to
-    the encoder / no anti-collapse pressure.
+    arch = mlp | resmlp | gru | transformer | mamba
+      mlp/resmlp : flatten the whole window -> MLP (context=2,k=1 == original head)
+      gru/transformer/mamba : per-timestep token -> sequence model -> last token
 
-    When ``use_action`` is True the current action a_t is concatenated to the
-    input. Beware the shortcut this enables: if a_{t+1} correlates with a_t the
-    model can copy a_t and ignore z, again killing the anti-collapse pressure.
+    Predicting the *future* action only carries anti-collapse signal when the
+    data's behaviour policy is state-conditioned. A stronger head predicts better
+    but can also extract the answer from a poor z (less encoder pressure), so
+    always track both policy_loss (down) AND effective_rank (up).
     """
 
     def __init__(self, embed_dim, action_dim, hidden_dim=256, use_action=True,
-                 num_future=1):
+                 num_future=1, context=2, arch="mlp", depth=2, heads=4):
         super().__init__()
         self.use_action = bool(use_action)
-        self.num_future = int(num_future)   # predict a_{t+1}, ..., a_{t+num_future}
+        self.num_future = int(num_future)
         self.action_dim = int(action_dim)
-        in_dim = 2 * embed_dim + (action_dim if self.use_action else 0)
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, self.num_future * action_dim),
-        )
+        self.context = int(context)
+        self.arch = str(arch).lower()
+        out_dim = self.num_future * action_dim
+        act_in = action_dim if self.use_action else 0
 
-    def forward(self, z_t, z_tp1, a_t=None):
+        if self.arch in ("mlp", "resmlp"):
+            flat_in = self.context * embed_dim + (self.context - 1) * act_in
+            self.proj = nn.Linear(flat_in, hidden_dim)
+            if self.arch == "mlp":
+                self.body = nn.Sequential(
+                    nn.ReLU(), nn.Linear(hidden_dim, hidden_dim), nn.ReLU()
+                )
+            else:
+                self.body = nn.Sequential(*[_ResBlock(hidden_dim) for _ in range(depth)])
+            self.out = nn.Linear(hidden_dim, out_dim)
+        elif self.arch in ("gru", "transformer", "mamba"):
+            self.token = nn.Linear(embed_dim + act_in, hidden_dim)
+            if self.arch == "gru":
+                self.seq = nn.GRU(hidden_dim, hidden_dim, num_layers=depth, batch_first=True)
+            elif self.arch == "transformer":
+                self.pos = nn.Parameter(torch.randn(1, self.context, hidden_dim) * 0.02)
+                self.seq = nn.ModuleList(
+                    [_PolicyTransformerBlock(hidden_dim, heads=heads) for _ in range(depth)]
+                )
+            else:  # mamba
+                self.seq = nn.ModuleList([_MambaBlock(hidden_dim) for _ in range(depth)])
+            self.out = nn.Linear(hidden_dim, out_dim)
+        else:
+            raise ValueError(f"Unknown policy arch: {self.arch!r}")
+
+    def forward(self, z_window, a_window=None):
         """
-        z_t, z_tp1: (B, D) or (B, T, D)
-        a_t:        (B, action_dim) or (B, T, action_dim), required iff use_action
-        Returns: predicted next actions, shape (..., num_future, action_dim).
+        z_window: (B, L, D) — L=context latents ending at z_{t+1}
+        a_window: (B, L-1, A) — actions within the window (required iff use_action)
+        Returns: (B, num_future, action_dim)
         """
-        parts = [z_t, z_tp1]
-        if self.use_action:
-            assert a_t is not None, "use_action=True but a_t was not provided"
-            parts.append(a_t)
-        out = self.net(torch.cat(parts, dim=-1))
-        return out.reshape(*out.shape[:-1], self.num_future, self.action_dim)
+        B, L = z_window.shape[:2]
+        if self.arch in ("mlp", "resmlp"):
+            parts = [z_window.reshape(B, -1)]
+            if self.use_action:
+                parts.append(a_window.reshape(B, -1))
+            h = self.proj(torch.cat(parts, dim=-1))
+            h = self.body(h)
+        else:
+            tok_in = z_window
+            if self.use_action:
+                a_pad = F.pad(a_window, (0, 0, 0, 1))    # zero for the last latent
+                tok_in = torch.cat([z_window, a_pad], dim=-1)
+            x = self.token(tok_in)                       # (B, L, H)
+            if self.arch == "gru":
+                x, _ = self.seq(x)
+            elif self.arch == "transformer":
+                x = x + self.pos[:, :L]
+                for blk in self.seq:
+                    x = blk(x)
+            else:
+                for blk in self.seq:
+                    x = blk(x)
+            h = x[:, -1]                                  # last-token summary
+        return self.out(h).reshape(B, self.num_future, self.action_dim)
 
 
 class SIGReg(torch.nn.Module):
