@@ -1,14 +1,13 @@
 # @package _global_
 #
-# TwoRoom planning-eval config. Callables taken from the upstream Le-WM repo
-# (lucas-maes/le-wm, config/eval/tworoom.yaml) — same swm env and dataset format,
-# so these are the authoritative start/goal setters.
+# Push-T planning-eval config. Callables from the upstream Le-WM repo
+# (lucas-maes/le-wm, config/eval/pusht.yaml).
 
 world:
-  env_name: swm/TwoRoom-v1
+  env_name: swm/PushT-v1
 
 eval:
-  dataset_name: tworoom_eval
+  dataset_name: pusht_expert_eval
   callables:
     - method: _set_state
       args:
@@ -23,3 +22,4 @@ dataset:
   keys_to_cache:
     - action
     - proprio
+    - state
