@@ -5,7 +5,9 @@ description = "Sensorimotor world models with a joint forward + inverse-dynamics
 requires-python = ">=3.12,<3.13"
 dependencies = [
     # toy/ — dot-world / sprite experiments (CPU-friendly)
-    "torch>=2.2",
+    # <2.4 keeps manylinux_2_17 (glibc 2.17) wheels so it installs on old login
+    # nodes (e.g. DAIC); 2.3.x cu121 still supports L40/Ada (sm_89).
+    "torch>=2.2,<2.4",
     "numpy>=1.26",
     "pandas>=3.0.1",
     "matplotlib>=3.10.8",
