@@ -28,6 +28,21 @@
 
 ## DelftBlue 运行
 
+### 与自己的 inverse 基线比较
+
+按导师确认的实验设置，TwoRoom 比较统一使用 **150 个原始环境步**。下文中论文的 50 步仅记录已发表文字，不作为本次比较预算。
+
+inverse checkpoint 可用同一入口的 `--mode cem` 评估，动作归一化、任务抽样、目标偏移和 CEM 均保持一致：
+
+```bash
+sbatch planning/experiments/planning_eval/eval_tworoom_policy.sbatch \
+  "/scratch/$USER/smwm-runs/tworoom_inverse_lambda_0p1_seed0" \
+  --mode cem --num-eval 100 --batch-size 10 --eval-budget 150 \
+  --goal-offset 25 --task-seed 42025 --seed 42
+```
+
+比较前核对各次 protocol.json 的参数、episodes、start_steps、数据文件和训练设置。只有一个训练 seed 的结果不能代表跨 seed 均值。inverse 的 CEM 与 policy 模型的 CEM 是主要对照，direct 是额外的行为策略评估。没有训练过 policy head 的 inverse run 会拒绝 direct/both；旧 checkpoint 没有 head 与新 checkpoint 保存未训练 head 两种格式都支持，其他参数仍严格校验。
+
 需要现有 Linux GPU 环境、`stable-worldmodel==0.0.6`，以及 `/scratch/$USER/smwm-data/` 中的 `tworoom_train.h5` 和 `tworoom_eval.h5`。checkpoint 必须同时有 `config.yaml` 与 `checkpoints/last.ckpt`。严格加载任何缺失、额外或形状不符的模型权重都会报错，不会用随机权重继续评分。
 
 从仓库根目录提交，先用两个任务跑通完整路径：

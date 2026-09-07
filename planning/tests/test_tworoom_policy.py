@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from eval_tworoom_policy import ActionNormalizer, DirectPolicy, sample_tasks
+from eval_tworoom_policy import ActionNormalizer, DirectPolicy, sample_tasks, load_evaluation_state
 from module import PolicyModel
 
 
@@ -33,6 +33,29 @@ class FakeModel(torch.nn.Module):
 
 
 class EvaluationTests(unittest.TestCase):
+    def test_inverse_checkpoint_with_and_without_unused_head(self):
+        for saved_head in [False, True]:
+            model = torch.nn.Module()
+            model.encoder = torch.nn.Linear(2, 2)
+            model.policy_model = torch.nn.Linear(2, 2)
+            state = {k: v.clone() for k, v in model.state_dict().items()
+                     if saved_head or not k.startswith("policy_model.")}
+            load_evaluation_state(model, state, 0, "cem")
+            self.assertEqual(model.policy_model is not None, saved_head)
+            broken = dict(state)
+            broken.pop("encoder.weight")
+            with self.assertRaises(RuntimeError):
+                load_evaluation_state(model, broken, 0, "cem")
+
+    def test_untrained_or_missing_policy_is_not_evaluated_directly(self):
+        model = torch.nn.Module()
+        model.policy_model = torch.nn.Linear(2, 2)
+        for mode in ["direct", "both"]:
+            with self.assertRaises(ValueError):
+                load_evaluation_state(model, model.state_dict(), 0, mode)
+        with self.assertRaises(RuntimeError):
+            load_evaluation_state(model, {}, 0.1, "cem")
+
     def setUp(self):
         self.norm = ActionNormalizer(np.array([[1., -1.], [3., 1.]], np.float32))
         self.env = SimpleNamespace(action_space=SimpleNamespace(shape=(2, 2),

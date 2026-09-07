@@ -113,6 +113,17 @@ def json_default(value):
     raise TypeError(f"Cannot serialize {type(value)}")
 
 
+def load_evaluation_state(model, state, policy_weight, mode):
+    """Allow inverse-only CEM runs without accepting incomplete trained heads."""
+    if policy_weight <= 0 and mode != "cem":
+        raise ValueError("This run has no trained policy head; use --mode cem")
+    # Older inverse checkpoints predate the policy head. Later training code
+    # also saves an unused head, which must be retained for strict loading.
+    if policy_weight <= 0 and not any(k.startswith("policy_model.") for k in state):
+        model.policy_model = None
+    model.load_state_dict(state, strict=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True, type=Path)
@@ -154,10 +165,12 @@ def main():
     cfg = OmegaConf.load(args.run_dir / "config.yaml")
     if cfg.data.dataset.name != "tworoom_train" or int(cfg.wm.action_dim) != 2:
         raise ValueError("Expected a TwoRoom training run with action_dim=2")
-    if float(cfg.loss.get("policy", {}).get("weight", 0)) <= 0:
-        raise ValueError("Expected a checkpoint trained with loss.policy.weight > 0")
+    policy_cfg = cfg.loss.get("policy", {})
+    policy_weight = float(policy_cfg.get("weight", 0))
+    if policy_weight <= 0 and args.mode != "cem":
+        raise ValueError("This run has no trained policy head; use --mode cem")
     frameskip = int(cfg.data.dataset.frameskip)
-    if frameskip < 1 or int(cfg.loss.policy.get("context", 2)) < 1:
+    if frameskip < 1 or int(policy_cfg.get("context", 2)) < 1:
         raise ValueError("frameskip and policy context must be positive")
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -165,7 +178,7 @@ def main():
     checkpoint_path = args.run_dir / "checkpoints" / "last.ckpt"
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state = {k.removeprefix("model."): v for k, v in checkpoint["state_dict"].items() if k.startswith("model.")}
-    model.load_state_dict(state, strict=True)
+    load_evaluation_state(model, state, policy_weight, args.mode)
     model.to(args.device).eval().requires_grad_(False)
     del checkpoint, state
 
