@@ -117,10 +117,12 @@ def load_evaluation_state(model, state, policy_weight, mode):
     """Allow inverse-only CEM runs without accepting incomplete trained heads."""
     if policy_weight <= 0 and mode != "cem":
         raise ValueError("This run has no trained policy head; use --mode cem")
-    # Older inverse checkpoints predate the policy head. Later training code
-    # also saves an unused head, which must be retained for strict loading.
-    if policy_weight <= 0 and not any(k.startswith("policy_model.") for k in state):
+    # Inverse runs may save an untrained head in an older architecture. CEM
+    # never uses that head; exclude only this inactive module on both sides.
+    # Keep strict validation for all remaining weights and for trained heads.
+    if policy_weight <= 0:
         model.policy_model = None
+        state = {k: v for k, v in state.items() if not k.startswith("policy_model.")}
     model.load_state_dict(state, strict=True)
 
 

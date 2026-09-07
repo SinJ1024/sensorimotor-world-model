@@ -41,11 +41,33 @@ class EvaluationTests(unittest.TestCase):
             state = {k: v.clone() for k, v in model.state_dict().items()
                      if saved_head or not k.startswith("policy_model.")}
             load_evaluation_state(model, state, 0, "cem")
-            self.assertEqual(model.policy_model is not None, saved_head)
+            self.assertIsNone(model.policy_model)
             broken = dict(state)
             broken.pop("encoder.weight")
             with self.assertRaises(RuntimeError):
                 load_evaluation_state(model, broken, 0, "cem")
+
+    def test_legacy_unused_policy_head_and_strict_active_weights(self):
+        model = torch.nn.Module()
+        model.encoder = torch.nn.Linear(2, 2)
+        model.policy_model = torch.nn.Linear(2, 2)
+        state = {"encoder.weight": torch.full((2, 2), 3.),
+                 "encoder.bias": torch.full((2,), 4.)}
+        for layer in [0, 2, 4]:
+            state[f"policy_model.net.{layer}.weight"] = torch.zeros(7, 7)
+            state[f"policy_model.net.{layer}.bias"] = torch.zeros(7)
+        original_keys = set(state)
+        load_evaluation_state(model, state, 0, "cem")
+        torch.testing.assert_close(model.encoder.weight, state["encoder.weight"])
+        torch.testing.assert_close(model.encoder.bias, state["encoder.bias"])
+        self.assertEqual(set(state), original_keys)
+        with self.assertRaises(RuntimeError):
+            load_evaluation_state(model, {**state, "unknown.weight": torch.zeros(1)}, 0, "cem")
+        with self.assertRaises(RuntimeError):
+            load_evaluation_state(model, {**state, "encoder.weight": torch.zeros(3, 3)}, 0, "cem")
+        model.policy_model = torch.nn.Linear(2, 2)
+        with self.assertRaises(RuntimeError):
+            load_evaluation_state(model, state, 0.1, "cem")
 
     def test_untrained_or_missing_policy_is_not_evaluated_directly(self):
         model = torch.nn.Module()
