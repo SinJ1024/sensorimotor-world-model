@@ -6,37 +6,18 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 from pathlib import Path
 from typing import Any
 
 
-METRIC_ALIASES = {
-    "success_rate": ("success_rate", "success", "success_mean"),
-    "distance_to_goal": (
-        "distance_to_goal",
-        "final_distance",
-        "distance",
-        "mean_distance",
-        "goal_distance",
-    ),
-}
-
-
-def parse_float(value: Any) -> float:
-    if value is None:
-        return math.nan
+def parse_success_rate(metrics: dict[str, Any]) -> float:
+    """Read the sole planning metric reported in Figure 5."""
+    if "success_rate" not in metrics:
+        raise KeyError("metrics.json does not contain success_rate")
     try:
-        return float(value)
-    except (TypeError, ValueError):
-        return math.nan
-
-
-def pick_metric(metrics: dict[str, Any], aliases: tuple[str, ...]) -> float:
-    for key in aliases:
-        if key in metrics:
-            return parse_float(metrics[key])
-    return math.nan
+        return float(metrics["success_rate"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("success_rate must be numeric") from exc
 
 
 def load_manifest(path: Path) -> list[dict[str, str]]:
@@ -61,9 +42,16 @@ def aggregate(exp_dir: Path) -> list[dict[str, str]]:
             try:
                 result = json.loads(metrics_path.read_text(encoding="utf-8"))
                 metrics = result.get("metrics", {})
+                success_rate = parse_success_rate(metrics)
                 status = "ok"
             except json.JSONDecodeError:
                 status = "invalid_json"
+                success_rate = ""
+            except (KeyError, TypeError, ValueError):
+                status = "invalid_metric"
+                success_rate = ""
+        else:
+            success_rate = ""
 
         out_rows.append(
             {
@@ -72,18 +60,12 @@ def aggregate(exp_dir: Path) -> list[dict[str, str]]:
                 "method": row["method"],
                 "seed_or_repeat": row["seed_or_repeat"],
                 "run_label": row["run_label"],
-                "success_rate": str(
-                    pick_metric(metrics, METRIC_ALIASES["success_rate"])
-                ),
-                "distance_to_goal": str(
-                    pick_metric(metrics, METRIC_ALIASES["distance_to_goal"])
-                ),
+                "success_rate": str(success_rate),
                 "eval_budget": row["eval_budget"],
                 "goal_offset": row["goal_offset"],
                 "num_eval": row["num_eval"],
                 "eval_task_seed": eval_task_seed,
                 "policy_seed": policy_seed,
-                "elapsed_seconds": str(parse_float(result.get("elapsed_seconds"))),
                 "status": status,
                 "run_dir": str(run_dir),
                 "metrics_path": str(metrics_path),
@@ -101,13 +83,11 @@ def write_csv(rows: list[dict[str, str]], out_path: Path) -> None:
         "seed_or_repeat",
         "run_label",
         "success_rate",
-        "distance_to_goal",
         "eval_budget",
         "goal_offset",
         "num_eval",
         "eval_task_seed",
         "policy_seed",
-        "elapsed_seconds",
         "status",
         "run_dir",
         "metrics_path",

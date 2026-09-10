@@ -1,7 +1,6 @@
 # @package _global_
 #
-# Push-T planning-eval config. Callables from the upstream Le-WM repo
-# (lucas-maes/le-wm, config/eval/pusht.yaml).
+# Push-T planning-eval config. State/goal fields match upstream LeWM.
 
 world:
   env_name: swm/PushT-v1
@@ -12,11 +11,11 @@ eval:
     - method: _set_state
       args:
         state:
-          value: proprio
+          value: state
     - method: _set_goal_state
       args:
         goal_state:
-          value: goal_proprio
+          value: goal_state
 
 dataset:
   keys_to_cache:

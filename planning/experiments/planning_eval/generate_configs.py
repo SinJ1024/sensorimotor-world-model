@@ -41,8 +41,8 @@ ENVIRONMENTS = (
     ),
 )
 
-LEARNED_METHODS = ("forward_only", "inverse", "sigreg", "policy")
-METHODS = (*LEARNED_METHODS, "random")
+PAPER_LEARNED_METHODS = ("forward_only", "inverse", "sigreg")
+PAPER_METHODS = (*PAPER_LEARNED_METHODS, "random")
 
 
 def repo_root() -> Path:
@@ -136,7 +136,11 @@ def config_for_job(
     return job_name, cfg
 
 
-def generate(output_dir: Path, selected_job: str | None = None) -> list[dict[str, str]]:
+def generate(
+    output_dir: Path,
+    selected_job: str | None = None,
+    include_policy: bool = False,
+) -> list[dict[str, str]]:
     root = repo_root()
     training_manifest = (
         root / "experiments" / TRAINING_EXPERIMENT / "generated_configs" / "manifest.tsv"
@@ -146,8 +150,9 @@ def generate(output_dir: Path, selected_job: str | None = None) -> list[dict[str
     output_dir.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, str]] = []
 
+    methods = (*PAPER_METHODS, "policy") if include_policy else PAPER_METHODS
     for env_idx, env in enumerate(ENVIRONMENTS):
-        for method in METHODS:
+        for method in methods:
             for seed_or_repeat in SEEDS:
                 job_name, cfg = config_for_job(
                     env, env_idx, method, seed_or_repeat, training_runs
@@ -219,9 +224,21 @@ def main() -> None:
         default=Path(__file__).resolve().parent / "generated_configs",
     )
     parser.add_argument("--job-name", default=None)
+    parser.add_argument(
+        "--include-policy",
+        action="store_true",
+        help=(
+            "Also generate the experimental policy-regularized checkpoints. "
+            "They use the same paper CEM success-rate evaluation."
+        ),
+    )
     args = parser.parse_args()
 
-    rows = generate(args.output_dir, selected_job=args.job_name)
+    rows = generate(
+        args.output_dir,
+        selected_job=args.job_name,
+        include_policy=args.include_policy,
+    )
     write_manifest(rows, args.output_dir)
     print(f"Wrote {len(rows)} generated planning-eval configs to {args.output_dir}")
 

@@ -22,5 +22,5 @@ solver:
 eval:
   num_eval: 100
   goal_offset_steps: 25
-  eval_budget: 150
+  eval_budget: 50
   img_size: 224

@@ -63,7 +63,11 @@ export BASE_RUNS_ROOT="${RUNS_ROOT:-$EXPERIMENT_DIR/results}"
 CONFIG_ROOT="$EXPERIMENT_DIR/generated_configs"
 CONFIG_FILE="$CONFIG_ROOT/$JOB_NAME.yaml"
 if [ ! -f "$CONFIG_FILE" ]; then
-    python "$EXPERIMENT_DIR/generate_configs.py" --output-dir "$CONFIG_ROOT"
+    GENERATE_ARGS=(--output-dir "$CONFIG_ROOT")
+    if [ "$METHOD" = "policy" ]; then
+        GENERATE_ARGS+=(--include-policy)
+    fi
+    python "$EXPERIMENT_DIR/generate_configs.py" "${GENERATE_ARGS[@]}"
 fi
 
 if [ ! -f "$CONFIG_FILE" ]; then

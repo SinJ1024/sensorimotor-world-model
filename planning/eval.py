@@ -9,7 +9,6 @@ import argparse
 import json
 import os
 import sys
-import time
 from pathlib import Path
 
 os.environ.setdefault("MUJOCO_GL", "egl")
@@ -28,7 +27,7 @@ os.environ.setdefault("REPO_ROOT", str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT))
 
 from jepa import JEPA
-from module import ARPredictor, Embedder, InverseModel, MLP, PolicyModel
+from module import ARPredictor, Embedder, InverseModel, MLP
 from utils import load_composed_config
 
 
@@ -95,16 +94,6 @@ def build_jepa(cfg):
             action_dim=effective_act_dim,
             hidden_dim=cfg.inverse.get("hidden_dim", 256),
         ),
-        policy_model=PolicyModel(
-            embed_dim=embed_dim,
-            action_dim=effective_act_dim,
-            hidden_dim=cfg.loss.get("policy", {}).get("hidden_dim", 256),
-            use_action=bool(cfg.loss.get("policy", {}).get("use_action", True)),
-            num_future=int(cfg.loss.get("policy", {}).get("num_future", 1)),
-            context=int(cfg.loss.get("policy", {}).get("context", 2)),
-            arch=cfg.loss.get("policy", {}).get("arch", "mlp"),
-            depth=int(cfg.loss.get("policy", {}).get("depth", 2)),
-        ),
     )
 
 
@@ -120,11 +109,26 @@ def load_jepa_from_run(run_dir: Path, device: str = "cuda"):
         for k, v in ckpt["state_dict"].items()
         if k.startswith("model.")
     }
-    missing, unexpected = model.load_state_dict(state, strict=False)
-    if missing or unexpected:
+    # The paper evaluates the encoder and forward model through CEM.  A run
+    # trained with the experimental policy regularizer also stores an auxiliary
+    # policy head, but that head is not part of the paper evaluation path.
+    policy_weight = float(train_cfg.loss.get("policy", {}).get("weight", 0.0))
+    policy_keys = [key for key in state if key.startswith("policy_model.")]
+    if policy_weight > 0.0 and not policy_keys:
+        raise RuntimeError(
+            f"{run_dir}: config enables the policy regularizer, but the "
+            "checkpoint contains no policy_model weights"
+        )
+    state = {
+        key: value
+        for key, value in state.items()
+        if not key.startswith("policy_model.")
+    }
+    model.load_state_dict(state, strict=True)
+    if policy_keys:
         print(
-            f"[{run_dir.name}] load_state_dict: missing={len(missing)} "
-            f"unexpected={len(unexpected)}"
+            f"[{run_dir.name}] found and excluded {len(policy_keys)} auxiliary "
+            "policy-head tensors; paper evaluation uses CEM"
         )
     model = model.to(device).eval()
     model.requires_grad_(False)
@@ -276,7 +280,6 @@ def evaluate_run(run, cfg, out_dir: Path, dataset, episodes, start_steps):
 
     world.set_policy(policy)
 
-    t0 = time.time()
     metrics = world.evaluate_from_dataset(
         dataset,
         start_steps=start_steps,
@@ -287,10 +290,15 @@ def evaluate_run(run, cfg, out_dir: Path, dataset, episodes, start_steps):
         save_video=cfg["eval"].get("save_video", True),
         video_path=str(out_dir),
     )
-    elapsed = time.time() - t0
-    print(f"[{run['name']}] metrics: {metrics}  ({elapsed:.1f}s)")
-    run_result["metrics"] = metrics
-    run_result["elapsed_seconds"] = elapsed
+    if "success_rate" not in metrics:
+        raise KeyError(
+            f"[{run['name']}] evaluation did not return paper metric success_rate"
+        )
+    success_rate = float(metrics["success_rate"])
+    print(f"[{run['name']}] success_rate: {success_rate}")
+    # Figure 5 reports environment success rate only.  Keep auxiliary values
+    # returned by stable-worldmodel out of the persisted evaluation result.
+    run_result["metrics"] = {"success_rate": success_rate}
     return run_result
 
 
