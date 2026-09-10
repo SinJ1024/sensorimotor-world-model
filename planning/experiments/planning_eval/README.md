@@ -4,6 +4,9 @@ This directory reports the paper's sole planning metric: environment
 `success_rate`. Learned checkpoints are evaluated by the same latent-space CEM
 planner; the random baseline uses `RandomPolicy`.
 
+Use the repository's frozen Python 3.13 environment (`uv sync --frozen`) on
+DelftBlue. The root `pyproject.toml` and `uv.lock` match the official release.
+
 Paper protocol:
 
 - 100 held-out tasks per run
