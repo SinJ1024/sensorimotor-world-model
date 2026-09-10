@@ -72,5 +72,9 @@ sbatch eval_checkpoint_delftblue.sbatch \
 Arguments are environment (`tworoom`, `reacher`, `pusht`, or `ogbcube`), the
 completed run directory, and its training seed (`0` through `4`). Set
 `SMWM_PROJECT_ROOT`, `EXTERNAL_DATA_ROOT`, or `EVAL_OUTPUT_ROOT` before `sbatch`
-to override their defaults. Each job saves its resolved evaluation config and a
-`metrics.json` containing only `success_rate`.
+to override their defaults. On DelftBlue the launcher reuses
+`$HOME/conda-envs/biased-dreams-dreamer/bin/python` when available. Set
+`SMWM_PYTHON` to select another existing environment. The launcher verifies
+PyTorch, `stable-worldmodel`, and `stable-pretraining` before evaluation. Each
+job saves its resolved evaluation config and a `metrics.json` containing only
+`success_rate`.

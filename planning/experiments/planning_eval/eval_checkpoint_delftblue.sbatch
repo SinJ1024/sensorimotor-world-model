@@ -59,7 +59,32 @@ esac
 
 module load 2025
 module load cuda
-source "$PROJECT/.venv/bin/activate"
+
+# Prefer the existing DelftBlue training environment. The repository .venv may
+# be absent or incomplete after a failed uv sync.
+if [ -n "${SMWM_PYTHON:-}" ]; then
+    PYTHON="$SMWM_PYTHON"
+elif [ -x "$HOME/conda-envs/biased-dreams-dreamer/bin/python" ]; then
+    PYTHON="$HOME/conda-envs/biased-dreams-dreamer/bin/python"
+else
+    PYTHON="$PROJECT/.venv/bin/python"
+fi
+[ -x "$PYTHON" ] || {
+    echo "Python executable not found: $PYTHON" >&2
+    echo "Set SMWM_PYTHON to the working environment's Python executable." >&2
+    exit 4
+}
+"$PYTHON" - <<'PY'
+import importlib.metadata as metadata
+import torch
+import stable_pretraining
+import stable_worldmodel
+
+print("python environment: verified")
+print("torch:", torch.__version__)
+print("stable-worldmodel:", metadata.version("stable-worldmodel"))
+print("stable-pretraining:", metadata.version("stable-pretraining"))
+PY
 
 export REPO_ROOT="$PLANNING"
 export EXTERNAL_DATA_ROOT="$DATA_ROOT"
@@ -102,13 +127,14 @@ echo "checkpoint    : $RUN_DIR/checkpoints/last.ckpt"
 echo "training seed : $TRAINING_SEED"
 echo "task seed     : $TASK_SEED"
 echo "CEM seed      : $POLICY_SEED"
+echo "python        : $PYTHON ($("$PYTHON" --version 2>&1))"
 echo "result        : $RESULT_DIR/seed_$TRAINING_SEED/metrics.json"
 nvidia-smi -L
 
-RUNS_ROOT="$RESULT_DIR" python -u "$PLANNING/eval.py" --config "$CONFIG"
+RUNS_ROOT="$RESULT_DIR" "$PYTHON" -u "$PLANNING/eval.py" --config "$CONFIG"
 
 METRICS="$RESULT_DIR/seed_$TRAINING_SEED/metrics.json"
-python - "$METRICS" <<'PY'
+"$PYTHON" - "$METRICS" <<'PY'
 import json
 import sys
 
