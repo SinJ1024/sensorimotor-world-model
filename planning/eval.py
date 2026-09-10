@@ -104,6 +104,14 @@ def load_jepa_from_run(run_dir: Path, device: str = "cuda"):
     ckpt = torch.load(
         run_dir / "checkpoints" / "last.ckpt", map_location="cpu", weights_only=False
     )
+    configured_epochs = int(train_cfg.trainer.max_epochs)
+    checkpoint_epoch = int(ckpt.get("epoch", -1))
+    if configured_epochs != 10 or checkpoint_epoch != 9:
+        raise RuntimeError(
+            f"{run_dir}: paper evaluation requires trainer.max_epochs=10 and "
+            f"a completed epoch-9 checkpoint; got max_epochs={configured_epochs}, "
+            f"checkpoint_epoch={checkpoint_epoch}"
+        )
     state = {
         k[len("model.") :]: v
         for k, v in ckpt["state_dict"].items()

@@ -14,6 +14,9 @@ Paper protocol:
 - CEM population 300, 30 optimization steps, top-k 30
 - five training seeds (or five random-policy repeats)
 
+Learned runs must declare `trainer.max_epochs: 10`, and their `last.ckpt` must
+contain completed epoch 9. Incomplete checkpoints are rejected before planning.
+
 The paper sweep contains four environments, four methods, and five seeds/repeats:
 
 ```text
