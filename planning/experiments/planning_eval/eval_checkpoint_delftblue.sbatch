@@ -2,7 +2,7 @@
 # Evaluate one completed checkpoint with the paper's Figure 5 CEM protocol.
 #
 # Usage:
-#   sbatch eval_checkpoint_delftblue.sbatch <env> <run_dir> <training_seed>
+#   sbatch eval_checkpoint_delftblue.sbatch <env> <run_dir> <training_seed> [50|150]
 #
 # The policy-regularized checkpoint uses exactly the same CEM evaluator as the
 # paper models.  Its auxiliary policy head must exist but is never executed.
@@ -18,10 +18,19 @@
 
 set -euo pipefail
 
-ENV_SLUG="${1:?usage: eval_checkpoint_delftblue.sbatch <env> <run_dir> <training_seed>}"
+ENV_SLUG="${1:?usage: eval_checkpoint_delftblue.sbatch <env> <run_dir> <training_seed> [50|150]}"
 RUN_DIR="${2:?missing checkpoint run directory}"
 TRAINING_SEED="${3:?missing training seed (0..4)}"
-[ "$#" -eq 3 ] || { echo "This paper evaluator accepts exactly three arguments" >&2; exit 2; }
+EVAL_BUDGET="${4:-50}"
+[ "$#" -ge 3 ] && [ "$#" -le 4 ] || {
+    echo "This paper evaluator accepts three arguments and one optional budget" >&2
+    exit 2
+}
+
+case "$EVAL_BUDGET" in
+    50|150) ;;
+    *) echo "eval budget must be 50 or 150" >&2; exit 2 ;;
+esac
 
 case "$TRAINING_SEED" in
     0|1|2|3|4) ;;
@@ -60,17 +69,27 @@ esac
 module load 2025
 module load cuda
 
-# Prefer the existing DelftBlue training environment. The repository .venv may
-# be absent or incomplete after a failed uv sync.
+# Reuse a working DelftBlue environment without modifying it.  An explicit
+# SMWM_PYTHON is authoritative; otherwise prefer the repository environment
+# that was used successfully before and fall back to the older conda path.
 if [ -n "${SMWM_PYTHON:-}" ]; then
     PYTHON="$SMWM_PYTHON"
-elif [ -x "$HOME/conda-envs/biased-dreams-dreamer/bin/python" ]; then
-    PYTHON="$HOME/conda-envs/biased-dreams-dreamer/bin/python"
 else
-    PYTHON="$PROJECT/.venv/bin/python"
+    PYTHON=""
+    for candidate in \
+        "$PROJECT/.venv/bin/python" \
+        "$HOME/conda-envs/biased-dreams-dreamer/bin/python"
+    do
+        if [ -x "$candidate" ] && "$candidate" -c \
+            'import torch, stable_pretraining, stable_worldmodel' >/dev/null 2>&1
+        then
+            PYTHON="$candidate"
+            break
+        fi
+    done
 fi
-[ -x "$PYTHON" ] || {
-    echo "Python executable not found: $PYTHON" >&2
+[ -n "$PYTHON" ] && [ -x "$PYTHON" ] || {
+    echo "No existing Python environment can import the evaluation dependencies." >&2
     echo "Set SMWM_PYTHON to the working environment's Python executable." >&2
     exit 4
 }
@@ -96,7 +115,7 @@ export PYTHONNOUSERSITE=1
 
 RUN_NAME="$(basename "$RUN_DIR")"
 JOB_TAG="${SLURM_JOB_ID:-manual}"
-JOB_ROOT="$OUTPUT_ROOT/$ENV_SLUG/$RUN_NAME/seed_$TRAINING_SEED/job_$JOB_TAG"
+JOB_ROOT="$OUTPUT_ROOT/$ENV_SLUG/$RUN_NAME/seed_$TRAINING_SEED/budget_$EVAL_BUDGET/job_$JOB_TAG"
 CONFIG_DIR="$JOB_ROOT/config"
 RESULT_DIR="$JOB_ROOT/results"
 mkdir -p "$CONFIG_DIR" "$RESULT_DIR"
@@ -116,7 +135,7 @@ runs:
 eval:
   num_eval: 100
   goal_offset_steps: 25
-  eval_budget: 50
+  eval_budget: $EVAL_BUDGET
   task_seed: $TASK_SEED
   save_video: false
 YAML
@@ -127,6 +146,7 @@ echo "checkpoint    : $RUN_DIR/checkpoints/last.ckpt"
 echo "training seed : $TRAINING_SEED"
 echo "task seed     : $TASK_SEED"
 echo "CEM seed      : $POLICY_SEED"
+echo "eval budget   : $EVAL_BUDGET"
 echo "python        : $PYTHON ($("$PYTHON" --version 2>&1))"
 echo "result        : $RESULT_DIR/seed_$TRAINING_SEED/metrics.json"
 nvidia-smi -L
