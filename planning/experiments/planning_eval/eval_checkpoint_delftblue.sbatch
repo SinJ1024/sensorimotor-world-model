@@ -127,7 +127,7 @@ defaults:
   - /eval/env/$ENV_SLUG
   - _self_
 hydra:
-  searchpath: [file://\${oc.env:REPO_ROOT}/config]
+  searchpath: ["file://\${oc.env:REPO_ROOT}/config"]
 seed: $POLICY_SEED
 runs:
   - name: seed_$TRAINING_SEED
