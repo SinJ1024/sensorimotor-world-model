@@ -35,10 +35,10 @@ optimizer:
   lr: 1e-4
   weight_decay: 1e-3
 
-# LinearWarmupCosineAnnealingLR steps per epoch (see optim.interval in train.py).
-# Units are epochs; max_steps is taken from trainer.max_epochs.
-scheduler:
-  warmup_epochs: 1
+training:
+  # A non-empty run directory is rejected unless this is explicitly enabled.
+  # This prevents a new experiment from silently loading an old checkpoint.
+  resume: false
 
 wandb:
   enabled: true

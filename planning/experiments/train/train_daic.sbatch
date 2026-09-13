@@ -1,60 +1,95 @@
 #!/bin/bash
+# Train one run on exactly one DAIC L40 using the already validated container.
+# Usage: sbatch train_daic.sbatch <base_run_name> [Hydra overrides...]
 #
-# DAIC (Delft AI Cluster) launcher — L40 by default, bf16.
-# Usage:  sbatch train_daic.sbatch <run_name> [train.py overrides...]
-# Blackwell instead of L40 (needs a cu128 torch):
-#   sbatch --gres=gpu:nvidia_rtx_pro_6000:1 train_daic.sbatch <run_name> ...
+# Architecture example:
+#   sbatch train_daic.sbatch tworoom_policy_seed0 \
+#     subdir=tworoom_policy_mamba_c16k3_seed0 \
+#     loss.policy.arch=mamba loss.policy.context=16 \
+#     loss.policy.num_future=3
 #
-#SBATCH --job-name=smwm
+#SBATCH --job-name=smwm-train
 #SBATCH --partition=general
 #SBATCH --account=ewi-insy-sdm
-#SBATCH --qos=short
-#SBATCH --gres=gpu:nvidia_l40:1
-#SBATCH --cpus-per-task=12
-#SBATCH --mem=48G
-#SBATCH --time=04:00:00
-#SBATCH --output=slurm-%x-%j.out
+#SBATCH --qos=medium
+#SBATCH --gres=gpu:l40:1
+#SBATCH --cpus-per-task=26
+#SBATCH --mem=64G
+#SBATCH --time=12:00:00
+#SBATCH --output=/tudelft.net/staff-umbrella/mscworldmodels/jingyuansun/smwm/logs/slurm-%x-%j.out
 
 set -euo pipefail
+trap 'status=$?; if [ "$status" -ne 0 ]; then echo "FAILED status=$status line=$LINENO command=$BASH_COMMAND" >&2; fi' EXIT
 
-if [ "$#" -lt 1 ]; then
-    echo "usage: sbatch train_daic.sbatch <run_name> [overrides...]" >&2
-    exit 2
-fi
-RUN_NAME="$1"; shift
+BASE_RUN="${1:?usage: sbatch train_daic.sbatch <base_run_name> [Hydra overrides...]}"
+shift
 
-# --- edit these two lines if your clone/data live elsewhere -------------------
-PROJECT=/tudelft.net/staff-umbrella/mscworldmodels/sensorimotor-world-model
-DATAROOT=/tudelft.net/staff-umbrella/mscworldmodels/smwm-data
+PROJ=/tudelft.net/staff-umbrella/mscworldmodels
+PROJECT="${SMWM_REPO:-$PROJ/sensorimotor-world-model}"
 PLANNING="$PROJECT/planning"
+SIF="${SMWM_SIF:-$PROJ/jingyuansun/smwm/containers/smwm-train.sif}"
+DATA="${EXTERNAL_DATA_ROOT:-$PROJ/smwm-data}"
+# This new default deliberately cannot collide with the previous bad checkpoints.
+RUNS="${RUNS_ROOT:-$PROJ/smwm-runs-repro-fixed}"
+LOGDIR="${SMWM_LOG_DIR:-$RUNS/_logs}"
+JOBTMP="$RUNS/_tmp/${SLURM_JOB_ID:-local}"
 
-module load 2025/gpu                       # DAIC GPU stack (CUDA etc.)
-source "$PROJECT/.venv/bin/activate"       # uv-managed venv (do NOT module-load python)
+mkdir -p "$LOGDIR" "$JOBTMP"
+LOGFILE="$LOGDIR/${SLURM_JOB_NAME:-smwm-train}-job${SLURM_JOB_ID:-local}.out"
+exec > >(tee "$LOGFILE") 2>&1
+
+[ -f "$SIF" ] || { echo "missing container: $SIF" >&2; exit 1; }
+[ -d "$PLANNING" ] || { echo "missing fork checkout: $PROJECT" >&2; exit 1; }
+[ -s "$DATA/tworoom_train.h5" ] || { echo "missing data: $DATA/tworoom_train.h5" >&2; exit 1; }
+
+REPO_COMMIT="$(git -C "$PROJECT" rev-parse HEAD)"
+[ -z "$(git -C "$PROJECT" status --porcelain --untracked-files=no)" ] || {
+    echo "tracked files in $PROJECT are dirty; commit or restore them first" >&2
+    exit 1
+}
+
+CONFIG_DIR="$PLANNING/experiments/train/generated_configs"
+if [ ! -f "$CONFIG_DIR/$BASE_RUN.yaml" ]; then
+    apptainer exec --bind "$PROJ" "$SIF" /work/venv/bin/python \
+        "$PLANNING/experiments/train/generate_configs.py" \
+        --output-dir "$CONFIG_DIR" --run-name "$BASE_RUN"
+fi
 
 export REPO_ROOT="$PLANNING"
-export EXTERNAL_DATA_ROOT="${EXTERNAL_DATA_ROOT:-$DATAROOT}"
-export GENERATED_DATA_ROOT="${GENERATED_DATA_ROOT:-$DATAROOT/generated}"
-export RUNS_ROOT="${RUNS_ROOT:-/tudelft.net/staff-umbrella/mscworldmodels/smwm-runs}"
-export WANDB_MODE="${WANDB_MODE:-offline}"  # compute nodes have no internet
-export MUJOCO_GL="${MUJOCO_GL:-egl}"        # headless render for eval
-mkdir -p "$EXTERNAL_DATA_ROOT" "$GENERATED_DATA_ROOT" "$RUNS_ROOT"
-
-NUM_WORKERS="${SLURM_CPUS_PER_TASK:-12}"
-CONFIG_DIR="$PLANNING/experiments/train/generated_configs"
-if [ ! -f "$CONFIG_DIR/$RUN_NAME.yaml" ]; then
-    python "$PLANNING/experiments/train/generate_configs.py" --output-dir "$CONFIG_DIR"
-fi
+export EXTERNAL_DATA_ROOT="$DATA"
+export STABLEWM_HOME="$DATA"
+export RUNS_ROOT="$RUNS"
+export WANDB_MODE=offline
+export MUJOCO_GL=egl
+export PYTHONUNBUFFERED=1
+export HYDRA_FULL_ERROR=1
+export TMPDIR="$JOBTMP" TMP="$JOBTMP" TEMP="$JOBTMP"
+export MPLCONFIGDIR="/tmp/$USER/mpl"
+export XDG_CACHE_HOME="/tmp/$USER/xdg"
+export HF_HOME="/tmp/$USER/hf"
+mkdir -p "$MPLCONFIGDIR" "$XDG_CACHE_HOME" "$HF_HOME"
 
 echo "======================================================================"
-echo "run_name+overrides : $RUN_NAME $*"
-echo "node               : $(hostname)   gpu: ${CUDA_VISIBLE_DEVICES:-unset}   workers: $NUM_WORKERS"
-echo "RUNS_ROOT          : $RUNS_ROOT"
+echo "base run     : $BASE_RUN"
+echo "overrides    : $*"
+echo "host         : $(hostname)"
+echo "repo commit  : $REPO_COMMIT"
+echo "container    : $SIF"
+echo "data         : $DATA"
+echo "runs         : $RUNS"
+echo "log          : $LOGFILE"
 echo "======================================================================"
-nvidia-smi -L || true
+nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
 
-# L40/Blackwell support bf16 -> use base.yaml precision (do NOT pass 16-mixed).
+GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)"
+GPU_COUNT="$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)"
+[ "$GPU_COUNT" -eq 1 ] || { echo "expected one visible GPU, got $GPU_COUNT" >&2; exit 1; }
+[[ "$GPU_NAME" == *L40* ]] || { echo "expected L40, got: $GPU_NAME" >&2; exit 1; }
+
 cd "$PLANNING"
-srun python -u train.py \
+apptainer exec --nv --bind "$PROJ" "$SIF" \
+    /work/venv/bin/python -u train.py \
     --config-path "$CONFIG_DIR" \
-    --config-name "$RUN_NAME" \
-    num_workers="$NUM_WORKERS" "$@"
+    --config-name "$BASE_RUN" \
+    num_workers="${SLURM_CPUS_PER_TASK:-26}" \
+    "$@"

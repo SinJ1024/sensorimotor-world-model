@@ -49,6 +49,38 @@ def configure_external_callbacks(enabled: bool) -> None:
     callback_connector._load_external_callbacks = _no_external_callbacks
 
 
+class SchedulerConfigurationGuard(pl.Callback):
+    """Fail before training when the step-based LR schedule has wrong units."""
+
+    def on_train_start(self, trainer, pl_module) -> None:
+        schedulers = pl_module.lr_schedulers()
+        if schedulers is None:
+            return
+        if not isinstance(schedulers, (list, tuple)):
+            schedulers = [schedulers]
+
+        expected_steps = int(trainer.estimated_stepping_batches)
+        expected_warmup = max(1, int(0.01 * expected_steps))
+        for scheduler in schedulers:
+            if scheduler.__class__.__name__ != "LinearWarmupCosineAnnealingLR":
+                continue
+            actual_steps = int(scheduler.max_steps)
+            actual_warmup = int(scheduler.warmup_steps)
+            if (actual_steps, actual_warmup) != (expected_steps, expected_warmup):
+                raise RuntimeError(
+                    "Invalid LinearWarmupCosineAnnealingLR configuration: "
+                    f"got warmup_steps={actual_warmup}, max_steps={actual_steps}; "
+                    f"expected warmup_steps={expected_warmup}, "
+                    f"max_steps={expected_steps}. stable-pretraining steps this "
+                    "scheduler after every optimizer update."
+                )
+            print(
+                "Verified LR scheduler: "
+                f"warmup_steps={actual_warmup}, max_steps={actual_steps}",
+                flush=True,
+            )
+
+
 def forward_step(self, batch, stage, cfg):
     lambd_sigreg = cfg.loss.sigreg.weight
     lambd_inv = cfg.loss.inverse.weight
@@ -120,6 +152,11 @@ def forward_step(self, batch, stage, cfg):
 
 @hydra.main(version_base=None, config_path=None, config_name=None)
 def run(cfg):
+    # Manager seeds again immediately before fit, but the model and transforms are
+    # constructed before Manager is called. Seed here as well so cfg.seed controls
+    # parameter initialization and the complete data pipeline.
+    pl.seed_everything(int(cfg.seed), workers=True)
+
     history_size = int(cfg.wm.get("history_size", 1))
     # The policy regularizer needs context + num_future - 1 steps in each clip.
     policy_cfg = cfg.loss.get("policy", {})
@@ -191,6 +228,19 @@ def run(cfg):
     embed_dim = cfg.wm.get("embed_dim", hidden_dim)
     effective_act_dim = cfg.data.dataset.frameskip * cfg.wm.action_dim
 
+    policy_model = None
+    if policy_cfg.get("weight", 0.0):
+        policy_model = PolicyModel(
+            embed_dim=embed_dim,
+            action_dim=effective_act_dim,
+            hidden_dim=policy_cfg.get("hidden_dim", 256),
+            use_action=bool(policy_cfg.get("use_action", True)),
+            num_future=int(policy_cfg.get("num_future", 1)),
+            context=int(policy_cfg.get("context", 2)),
+            arch=policy_cfg.get("arch", "mlp"),
+            depth=int(policy_cfg.get("depth", 2)),
+        )
+
     world_model = JEPA(
         encoder=encoder,
         predictor=ARPredictor(
@@ -218,23 +268,9 @@ def run(cfg):
             action_dim=effective_act_dim,
             hidden_dim=cfg.inverse.get("hidden_dim", 256),
         ),
-        policy_model=PolicyModel(
-            embed_dim=embed_dim,
-            action_dim=effective_act_dim,
-            hidden_dim=cfg.loss.get("policy", {}).get("hidden_dim", 256),
-            use_action=bool(cfg.loss.get("policy", {}).get("use_action", True)),
-            num_future=int(cfg.loss.get("policy", {}).get("num_future", 1)),
-            context=int(cfg.loss.get("policy", {}).get("context", 2)),
-            arch=cfg.loss.get("policy", {}).get("arch", "mlp"),
-            depth=int(cfg.loss.get("policy", {}).get("depth", 2)),
-        ),
+        policy_model=policy_model,
     )
 
-    # stable_pretraining>=0.1.6 requires LinearWarmupCosineAnnealingLR's
-    # warmup_steps / max_steps to be given explicitly (no defaults). The
-    # scheduler steps once per epoch (interval below), so the units are epochs.
-    max_epochs = int(cfg.trainer.max_epochs)
-    warmup_epochs = int(cfg.get("scheduler", {}).get("warmup_epochs", 1))
     module_kwargs = {
         "model": world_model,
         "forward": partial(forward_step, cfg=cfg),
@@ -242,11 +278,10 @@ def run(cfg):
             "model_opt": {
                 "modules": "model",
                 "optimizer": dict(cfg.optimizer),
-                "scheduler": {
-                    "type": "LinearWarmupCosineAnnealingLR",
-                    "warmup_steps": warmup_epochs,
-                    "max_steps": max_epochs,
-                },
+                # Match the released paper code. stable-pretraining==0.1.6
+                # derives max_steps from Trainer.estimated_stepping_batches and
+                # warmup_steps as 1% of that value.
+                "scheduler": "LinearWarmupCosineAnnealingLR",
                 "interval": "epoch",
             }
         },
@@ -263,6 +298,18 @@ def run(cfg):
     run_id = cfg.get("subdir") or ""
     run_root = get_runs_root()
     run_dir = run_root / run_id if run_id else run_root
+    resume = bool(cfg.get("training", {}).get("resume", False))
+    ckpt_path = run_dir / "checkpoints" / "last.ckpt"
+    if run_dir.exists() and any(run_dir.iterdir()) and not resume:
+        raise FileExistsError(
+            f"Refusing to reuse non-empty run directory: {run_dir}. "
+            "Choose a new RUNS_ROOT/subdir, or set training.resume=true "
+            "to intentionally continue its last.ckpt."
+        )
+    if resume and not ckpt_path.is_file():
+        raise FileNotFoundError(
+            f"training.resume=true but checkpoint is missing: {ckpt_path}"
+        )
     run_dir.mkdir(parents=True, exist_ok=True)
 
     if cfg.get("artifacts", {}).get("save_resolved_config", True):
@@ -272,10 +319,10 @@ def run(cfg):
     configure_external_callbacks(cfg.get("artifacts", {}).get("use_external_callbacks", False))
 
     lightning_dir = run_dir / "lightning" / "local"
-    if lightning_dir.exists():
+    if lightning_dir.exists() and not resume:
         shutil.rmtree(lightning_dir)
 
-    callbacks = []
+    callbacks = [SchedulerConfigurationGuard()]
     if cfg.get("artifacts", {}).get("save_model_object", False):
         callbacks.append(
             ModelObjectCallBack(
@@ -310,7 +357,6 @@ def run(cfg):
         enable_checkpointing=False,
     )
 
-    ckpt_path = run_dir / "checkpoints" / "last.ckpt"
     ckpt_path.parent.mkdir(parents=True, exist_ok=True)
 
     manager = spt.Manager(
