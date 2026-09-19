@@ -238,21 +238,27 @@ class GoalConditionedPolicy(nn.Module):
     policy, so it carries signal under random exploration too. With G=1 it
     coincides with the inverse-dynamics head; G>1 conditions on a farther goal.
     Same architecture as InverseModel (2-layer MLP on cat[z_t, z_goal]).
+
+    num_actions=k (1 <= k <= G) predicts a_t..a_{t+k-1}: k=1 is the policy
+    reading (first action toward the goal), k=G the full G-step inverse model.
     """
 
-    def __init__(self, embed_dim, action_dim, hidden_dim=256):
+    def __init__(self, embed_dim, action_dim, hidden_dim=256, num_actions=1):
         super().__init__()
+        self.num_actions = int(num_actions)
+        self.action_dim = int(action_dim)
         self.net = nn.Sequential(
             nn.Linear(2 * embed_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, action_dim),
+            nn.Linear(hidden_dim, self.num_actions * self.action_dim),
         )
 
     def forward(self, z_t, z_goal):
-        """z_t, z_goal: (B, D) or (B, T, D) -> predicted a_t, same leading dims."""
-        return self.net(torch.cat([z_t, z_goal], dim=-1))
+        """z_t, z_goal: (..., D) -> predicted actions (..., num_actions, A)."""
+        out = self.net(torch.cat([z_t, z_goal], dim=-1))
+        return out.reshape(*out.shape[:-1], self.num_actions, self.action_dim)
 
 
 class _ResBlock(nn.Module):

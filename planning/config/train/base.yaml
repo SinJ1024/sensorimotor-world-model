@@ -96,6 +96,7 @@ loss:
   goal_policy:
     weight: 0.0
     goal_offsets: [2]    # one head per G; loss = mean over G (e.g. [1, 2, 3] = multi-scale)
+    num_actions: 1       # k <= min(G): predict a_t..a_{t+k-1}; 1 = policy, G = full G-step inverse
     hidden_dim: 256
 
 compile:

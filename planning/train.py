@@ -147,20 +147,23 @@ def forward_step(self, batch, stage, cfg):
     if lambd_goal:
         # Goal-conditioned policy regularizer: a_t = pi(z_t, z_{t+G}) for each
         # goal offset G in loss.goal_policy.goal_offsets; loss = mean over G.
+        # num_actions=k predicts a_t..a_{t+k-1} (k=1: policy; k=G: G-step inverse).
         offsets = [int(g) for g in cfg.loss.goal_policy.get("goal_offsets", [2])]
+        k = int(cfg.loss.goal_policy.get("num_actions", 1))
         T = emb.size(1)
         terms = []
         for G in offsets:
-            if T <= G:
+            if T <= G or k > G or k < 1:
                 raise ValueError(
-                    f"Batch sequence length {T} is too short for goal_offset={G}; "
-                    f"need >= {G + 1}."
+                    f"goal_policy: need sequence length > goal_offset ({T} vs {G}) "
+                    f"and 1 <= num_actions <= goal_offset ({k} vs {G})."
                 )
             z_t = emb[:, :-G]                                       # (B, T-G, D)
             z_goal = emb[:, G:]                                     # (B, T-G, D)
-            a_t = batch["action"][:, :-G]                           # (B, T-G, A)
-            pred = self.model.predict_goal_action(z_t, z_goal, G)
-            term = (pred - a_t).pow(2).mean()
+            # windows a_t..a_{t+k-1} for every valid t: (B, T-G, k, A)
+            a_win = batch["action"].unfold(1, k, 1)[:, : T - G].permute(0, 1, 3, 2)
+            pred = self.model.predict_goal_action(z_t, z_goal, G)   # (B, T-G, k, A)
+            term = (pred - a_win).pow(2).mean()
             if len(offsets) > 1:
                 output[f"goal_policy_g{G}_loss"] = term
             terms.append(term)
@@ -287,6 +290,7 @@ def run(cfg):
                     embed_dim=embed_dim,
                     action_dim=effective_act_dim,
                     hidden_dim=goal_cfg.get("hidden_dim", 256),
+                    num_actions=int(goal_cfg.get("num_actions", 1)),
                 )
                 for G in sorted({int(g) for g in goal_cfg.get("goal_offsets", [2])})
             }
