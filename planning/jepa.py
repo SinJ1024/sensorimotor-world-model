@@ -17,6 +17,7 @@ class JEPA(nn.Module):
         pred_proj=None,
         inverse_model=None,
         policy_model=None,
+        goal_policy=None,
     ):
         super().__init__()
         self.encoder = encoder
@@ -26,6 +27,8 @@ class JEPA(nn.Module):
         self.pred_proj = pred_proj or nn.Identity()
         self.inverse_model = inverse_model
         self.policy_model = policy_model
+        # Goal-conditioned policy heads, one per goal offset: {str(G): head}.
+        self.goal_policy = goal_policy
         image_size = getattr(getattr(self.encoder, "config", None), "image_size", None)
         if isinstance(image_size, int):
             self.image_size = (image_size, image_size)
@@ -89,6 +92,14 @@ class JEPA(nn.Module):
         """Predict action from consecutive embeddings using the inverse model."""
         assert self.inverse_model is not None, "No inverse model configured"
         return self.inverse_model(z_t, z_tp1)
+
+    def predict_goal_action(self, z_t, z_goal, goal_offset):
+        """a_t = pi(z_t, z_{t+G}) via the goal-conditioned policy head for offset G."""
+        key = str(int(goal_offset))
+        assert self.goal_policy is not None and key in self.goal_policy, (
+            f"No goal-conditioned policy head for goal_offset={goal_offset}"
+        )
+        return self.goal_policy[key](z_t, z_goal)
 
     def predict_next_action(self, z_window, a_window=None):
         """Predict the next actions from a window of latents (+ past actions)

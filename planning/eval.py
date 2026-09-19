@@ -127,16 +127,19 @@ def load_jepa_from_run(run_dir: Path, device: str = "cuda"):
             f"{run_dir}: config enables the policy regularizer, but the "
             "checkpoint contains no policy_model weights"
         )
+    # Likewise the goal-conditioned policy heads (loss.goal_policy) are
+    # training-time regularizers only.
+    goal_keys = [key for key in state if key.startswith("goal_policy.")]
     state = {
         key: value
         for key, value in state.items()
-        if not key.startswith("policy_model.")
+        if not key.startswith(("policy_model.", "goal_policy."))
     }
     model.load_state_dict(state, strict=True)
-    if policy_keys:
+    if policy_keys or goal_keys:
         print(
-            f"[{run_dir.name}] found and excluded {len(policy_keys)} auxiliary "
-            "policy-head tensors; paper evaluation uses CEM"
+            f"[{run_dir.name}] found and excluded {len(policy_keys)} policy-head and "
+            f"{len(goal_keys)} goal-conditioned-policy tensors; paper evaluation uses CEM"
         )
     model = model.to(device).eval()
     model.requires_grad_(False)

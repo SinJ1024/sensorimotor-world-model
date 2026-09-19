@@ -89,6 +89,14 @@ loss:
     context: 2           # latents fed to the head (2 = z_t,z_{t+1}; larger = longer window)
     arch: mlp            # mlp | resmlp | gru | transformer | mamba
     depth: 2             # layers for resmlp/gru/transformer/mamba
+  # Goal-conditioned policy regularizer: a_t = pi(z_t, z_{t+G}) (hindsight goal).
+  # Its signal comes from the dynamics, not the behaviour policy; G=1 coincides
+  # with the inverse-dynamics head. Independent of inverse/policy, so it can be
+  # used alone (inverse.weight: 0.0) or on top of them.
+  goal_policy:
+    weight: 0.0
+    goal_offsets: [2]    # one head per G; loss = mean over G (e.g. [1, 2, 3] = multi-scale)
+    hidden_dim: 256
 
 compile:
   enabled: false

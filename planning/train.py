@@ -20,7 +20,15 @@ from lightning.pytorch.loggers import CSVLogger, WandbLogger
 from omegaconf import OmegaConf, open_dict
 
 from jepa import JEPA
-from module import ARPredictor, Embedder, InverseModel, MLP, PolicyModel, SIGReg
+from module import (
+    ARPredictor,
+    Embedder,
+    GoalConditionedPolicy,
+    InverseModel,
+    MLP,
+    PolicyModel,
+    SIGReg,
+)
 from utils import (
     ModelObjectCallBack,
     ResizeCompat,
@@ -85,6 +93,7 @@ def forward_step(self, batch, stage, cfg):
     lambd_sigreg = cfg.loss.sigreg.weight
     lambd_inv = cfg.loss.inverse.weight
     lambd_policy = cfg.loss.get("policy", {}).get("weight", 0.0)
+    lambd_goal = cfg.loss.get("goal_policy", {}).get("weight", 0.0)
     policy_use_action = bool(cfg.loss.get("policy", {}).get("use_action", True))
     history_size = int(cfg.wm.get("history_size", 1))
     required_steps = history_size + 1
@@ -135,6 +144,29 @@ def forward_step(self, batch, stage, cfg):
         output["policy_loss"] = (pred_next - a_future).pow(2).mean()
         output["loss"] = output["loss"] + lambd_policy * output["policy_loss"]
 
+    if lambd_goal:
+        # Goal-conditioned policy regularizer: a_t = pi(z_t, z_{t+G}) for each
+        # goal offset G in loss.goal_policy.goal_offsets; loss = mean over G.
+        offsets = [int(g) for g in cfg.loss.goal_policy.get("goal_offsets", [2])]
+        T = emb.size(1)
+        terms = []
+        for G in offsets:
+            if T <= G:
+                raise ValueError(
+                    f"Batch sequence length {T} is too short for goal_offset={G}; "
+                    f"need >= {G + 1}."
+                )
+            z_t = emb[:, :-G]                                       # (B, T-G, D)
+            z_goal = emb[:, G:]                                     # (B, T-G, D)
+            a_t = batch["action"][:, :-G]                           # (B, T-G, A)
+            pred = self.model.predict_goal_action(z_t, z_goal, G)
+            term = (pred - a_t).pow(2).mean()
+            if len(offsets) > 1:
+                output[f"goal_policy_g{G}_loss"] = term
+            terms.append(term)
+        output["goal_policy_loss"] = torch.stack(terms).mean()
+        output["loss"] = output["loss"] + lambd_goal * output["goal_policy_loss"]
+
     if lambd_sigreg:
         output["sigreg_loss"] = self.sigreg(emb.transpose(0, 1))
         output["loss"] = output["loss"] + lambd_sigreg * output["sigreg_loss"]
@@ -164,7 +196,13 @@ def run(cfg):
         policy_steps = int(policy_cfg.get("context", 2)) + int(policy_cfg.get("num_future", 1)) - 1
     else:
         policy_steps = 0
-    required_steps = max(history_size + 1, policy_steps)
+    # The goal-conditioned policy needs max(goal_offsets) + 1 steps in each clip.
+    goal_cfg = cfg.loss.get("goal_policy", {})
+    if goal_cfg.get("weight", 0.0):
+        goal_steps = max(int(g) for g in goal_cfg.get("goal_offsets", [2])) + 1
+    else:
+        goal_steps = 0
+    required_steps = max(history_size + 1, policy_steps, goal_steps)
     with open_dict(cfg):
         cfg.wm.history_size = history_size
         cfg.wm.num_preds = int(cfg.wm.get("num_preds", 1))
@@ -241,6 +279,19 @@ def run(cfg):
             depth=int(policy_cfg.get("depth", 2)),
         )
 
+    goal_policy = None
+    if goal_cfg.get("weight", 0.0):
+        goal_policy = torch.nn.ModuleDict(
+            {
+                str(int(G)): GoalConditionedPolicy(
+                    embed_dim=embed_dim,
+                    action_dim=effective_act_dim,
+                    hidden_dim=goal_cfg.get("hidden_dim", 256),
+                )
+                for G in sorted({int(g) for g in goal_cfg.get("goal_offsets", [2])})
+            }
+        )
+
     world_model = JEPA(
         encoder=encoder,
         predictor=ARPredictor(
@@ -269,6 +320,7 @@ def run(cfg):
             hidden_dim=cfg.inverse.get("hidden_dim", 256),
         ),
         policy_model=policy_model,
+        goal_policy=goal_policy,
     )
 
     module_kwargs = {

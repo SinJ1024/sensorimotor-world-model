@@ -229,6 +229,32 @@ class InverseModel(nn.Module):
         return self.net(torch.cat([z_t, z_tp1], dim=-1))
 
 
+class GoalConditionedPolicy(nn.Module):
+    """Regularizer head: a_t = pi(z_t, z_{t+G}) -- the first action given the
+    current latent and the latent reached G steps later (hindsight goal).
+
+    Unlike the next-action policy head, its supervision comes from the dynamics
+    (which action moves z_t toward z_{t+G}) rather than from the behaviour
+    policy, so it carries signal under random exploration too. With G=1 it
+    coincides with the inverse-dynamics head; G>1 conditions on a farther goal.
+    Same architecture as InverseModel (2-layer MLP on cat[z_t, z_goal]).
+    """
+
+    def __init__(self, embed_dim, action_dim, hidden_dim=256):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(2 * embed_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim),
+        )
+
+    def forward(self, z_t, z_goal):
+        """z_t, z_goal: (B, D) or (B, T, D) -> predicted a_t, same leading dims."""
+        return self.net(torch.cat([z_t, z_goal], dim=-1))
+
+
 class _ResBlock(nn.Module):
     def __init__(self, dim, mult=4):
         super().__init__()
