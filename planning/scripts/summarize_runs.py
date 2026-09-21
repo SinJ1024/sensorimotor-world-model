@@ -79,9 +79,11 @@ def last_metric(rows, pred):
 
 
 def lambda_from_name(name):
-    """tworoom_policy_mlp_c2k1_lam0p03_seed1 -> 0.03 (lambda-sweep runs)."""
-    m = re.search(r"_lam(\d+)p(\d+)_", name)
-    return float(f"{m.group(1)}.{m.group(2)}") if m else None
+    """tworoom_policy_mlp_c2k1_lam0p03_seed1 -> 0.03, pusht_..._lam300_seed0 -> 300."""
+    m = re.search(r"_lam(\d+)(?:p(\d+))?_", name)
+    if not m:
+        return None
+    return float(f"{m.group(1)}.{m.group(2) or 0}")
 
 
 def describe_method(cfg):

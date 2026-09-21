@@ -93,6 +93,13 @@ Paper forward-only / random baselines (Fig. 5): TwoRoom ~60/~20, Reacher ~40/~15
   `planning/experiments/planning_eval/eval_checkpoint_delftblue.sbatch <env> <run_dir> <seed>`.
 * DAIC (`ewi-insy-sdm`): `/tudelft.net/staff-umbrella/mscworldmodels/{jingyuansun/smwm/containers
   (smwm-train.sif, smwm-eval.sif), smwm-data, smwm-runs-fork}`; Apptainer only (glibc 2.17).
-* Leonardo (CINECA, grant obtained 2026-09-21): not started. Plan: clone fork; copy the two
-  .sif containers from DAIC; rsync the h5 splits from DelftBlue; write sbatch for
-  `boost_usr_prod` (A100 64GB, no internet on compute nodes -> WANDB_MODE=offline).
+* Leonardo (CINECA, trial project `Weng`, 8 000 h, valid until 2026-12-18): launchers written
+  2026-09-21, nothing run yet. Full recipe in `planning/LEONARDO.md`. Layout: repo + uv venv
+  `$WORK/$USER/sensorimotor-world-model`; data `$FAST/$USER/smwm-data` (Booster nodes are
+  diskless, no staging possible); runs `$WORK/$USER/smwm-runs`; evals
+  `$WORK/$USER/smwm-paper-eval`; all set by `planning/experiments/leonardo_env.sh`. Launchers
+  `experiments/train/train_leonardo.sbatch`, `experiments/planning_eval/eval_checkpoint_leonardo.sbatch`
+  (same seeds/output layout as DelftBlue, so `summarize_runs.py` works unchanged) and the
+  advisor's sweep `experiments/lambda_sweep/submit_policy_lambda_sweep_leonardo.sh`
+  (7 train+eval chains). 1 GPU + 8 CPU = 1/4 node = 8 h billed per wall hour. No container
+  needed: `uv sync` works on the login node (uv downloads Python 3.13; torch wheel bundles CUDA).
