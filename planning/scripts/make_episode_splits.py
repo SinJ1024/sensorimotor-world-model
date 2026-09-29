@@ -58,6 +58,18 @@ def output_filter_kwargs(src_d: h5py.Dataset) -> dict:
     return {"compression": "gzip", "compression_opts": 4}
 
 
+def rows_per_batch(src_d: h5py.Dataset, budget_bytes: int = 256 << 20) -> int:
+    """How many rows to buffer before writing, so writes stay large.
+
+    Capped by ``budget_bytes`` of RAM and rounded up to a whole number of
+    destination chunks along axis 0, so a flush rarely straddles a chunk.
+    """
+    row_bytes = max(1, int(np.prod(src_d.shape[1:], dtype=np.int64)) * src_d.dtype.itemsize)
+    rows = max(1, budget_bytes // row_bytes)
+    chunk0 = src_d.chunks[0] if src_d.chunks else 1
+    return max(chunk0, (rows // chunk0) * chunk0)
+
+
 def fit_chunks(src_d: h5py.Dataset, shape: tuple[int, ...]) -> tuple[int, ...] | None:
     if src_d.chunks is None:
         return None
@@ -170,14 +182,31 @@ def write_split(
                     dst_d[:] = new_ep_id_values.astype(src_d.dtype, copy=False)
                     continue
 
+                # Episodes are short (~125 rows) while the destination is
+                # chunked and compressed, so one write per episode makes h5py
+                # read-modify-write and recompress the same chunk over and over
+                # (measured: ~2 MB/s on Lustre). Accumulate whole episodes and
+                # flush in large blocks instead; the bytes written are the same.
+                batch_rows = rows_per_batch(src_d)
                 dst_off = 0
+                buf = []
+                buf_rows = 0
                 for src_ep in selected:
                     L = int(ep_len[src_ep])
                     if L == 0:
                         continue
                     s = int(ep_offset[src_ep])
-                    dst_d[dst_off:dst_off + L] = src_d[s:s + L]
-                    dst_off += L
+                    buf.append(src_d[s:s + L])
+                    buf_rows += L
+                    if buf_rows >= batch_rows:
+                        block = np.concatenate(buf, axis=0)
+                        dst_d[dst_off:dst_off + len(block)] = block
+                        dst_off += len(block)
+                        buf, buf_rows = [], 0
+                if buf:
+                    block = np.concatenate(buf, axis=0)
+                    dst_d[dst_off:dst_off + len(block)] = block
+                    dst_off += len(block)
 
             for name in per_episode:
                 src_d = src[name]
