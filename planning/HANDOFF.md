@@ -85,8 +85,17 @@ Paper forward-only / random baselines (Fig. 5): TwoRoom ~60/~20, Reacher ~40/~15
   allocation, so the eval does not queue twice), jobs 59127409-59127422, submitted by
   `$WORK/$USER/logs/resubmit_train_eval.sh`; logs `$WORK/$USER/smwm-logs`. Queue waits on
   boost_usr_prod were 39-54 h for jobs submitted 2026-09-28/29 (minutes the week before).
-  pusht/cube c2k1_noact seed0 also exist on DelftBlue (eval pending): a cross-cluster
-  reproducibility check.
+  **Results so far (DelftBlue, seed 0):** pusht c2k1_noact = 69 (c2k1 with a_t: 37,
+  inverse 89); cube c2k1_noact = 80 (with a_t: 69, inverse 81). Dropping a_t from the
+  head input removes the shortcut a_t -> a_{t+1}, so the head must read z_{t+1} - z_t,
+  i.e. the inverse-dynamics trace. Leonardo retrains of these two are reproducibility
+  checks (expect ~69 / ~80).
+  Split across clusters on 2026-10-01: DelftBlue runs the two TwoRoom ablations as one
+  serial chain (jobs 895214-895217, <= 1 GPU of the shared education account;
+  `~/smwm-jobs/submit_tworoom_inputs.sh`); Leonardo keeps the TwoRoom inverse reference
+  and reacher/pusht/cube c2k1_noact + c1k1.
+  NOTE: the DelftBlue checkout's main has a local commit 2cf7c14 (train_staged.sbatch)
+  and diverges from origin/main; do not pull there without merging.
 * Evals pending: tworoom goal_policy G=2/3/{1,2,3}, tworoom/reacher/pusht inverse+policy,
   reacher/pusht goal_policy G=2, cube inverse & policy mlp c2k1.
 * Advisor request: lambda sweep of policy on Push-T {3,10,100,300} and Reacher {0.5,50,500}
