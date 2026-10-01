@@ -17,56 +17,73 @@ valid 2026-09-18 → 2026-12-18). Everything below runs on a **login node** unle
 | Node-local disk | **none** (diskless); `$TMPDIR` = 10 GB of RAM. The DelftBlue "stage the h5 to local disk" trick is impossible → datasets live on `$FAST` (NVMe Lustre, built for small random reads) |
 | Storage | `$HOME` 50 GB no backup · `$WORK` 1 TB permanent (repo, venv, runs, evals) · `$FAST` 1 TB permanent (datasets) · `$SCRATCH` unlimited but **purged after 40 days** (unused) |
 | Internet | login nodes yes, compute nodes **no** → `WANDB_MODE=offline`, `HF_HUB_OFFLINE=1` (set in `leonardo_env.sh`) |
-| Python | system modules stop at 3.11; the repo needs ≥ 3.13 → `uv sync` downloads its own CPython + CUDA torch wheels, exactly like DelftBlue (no container needed) |
-| Account | `#SBATCH --account` is taken from `SBATCH_ACCOUNT`; the SLURM name may differ from the UserDB "AccountID" — read it from `saldo -b` |
+| Python | system modules stop at 3.11; the repo needs ≥ 3.13 → uv downloads its own CPython + CUDA torch wheels (no container). Three build traps, all handled in §1: uv picks 3.14 unless pinned, `box2d-py` needs `swig`, `labmaze` cannot be built at all |
+| Login nodes | round-robin over login01/02/05/07 (`loginNN-ext.leonardo.cineca.it`); long CPU/IO processes get **killed** (a 30-min `uv sync` and a multi-hour h5 split both died). Use `tmux` on a fixed node, or the budget-free `lrd_all_serial` partition (4 cores, 4 h, no internet) |
+| Account | SLURM account is **`try26_weng`** (lower case; UserDB shows "Weng"). `saldo -b` may say "username not existing" for the first days; `sacctmgr -n show assoc user=$USER` is authoritative |
 
 ## 1. One-time setup
 
 ```bash
-# --- login (2FA via smallstep certificate, see CINECA docs) ---
-ssh <user>@login.leonardo.cineca.it
-
-# --- project account + paths ---
-saldo -b                                    # -> project account name and remaining budget
-echo 'export SBATCH_ACCOUNT=<project account from saldo -b>' >> ~/.bashrc
-source ~/.bashrc
-echo "WORK=$WORK  FAST=$FAST"               # both must be set (chprj <project> if several)
+# --- project account + paths (a new member's group appears a day after being added) ---
+id                                           # must list the project group, e.g. try26_Weng
+echo "WORK=$WORK  FAST=$FAST"                # "/no/project/defined" = not active yet
+echo 'export SBATCH_ACCOUNT=try26_weng' >> ~/.bashrc && source ~/.bashrc
 
 # --- repo into $WORK (not $HOME: 50 GB, no backup) ---
 mkdir -p "$WORK/$USER" && cd "$WORK/$USER"
 git clone https://github.com/SinJ1024/sensorimotor-world-model.git
 cd sensorimotor-world-model
-source planning/experiments/leonardo_env.sh   # creates the data/run/log/cache dirs
+source planning/experiments/leonardo_env.sh  # creates data/run/log/cache dirs, caches on $WORK
 
-# --- uv + venv (Python 3.13 + CUDA torch, all from PyPI; ~10 GB under $WORK) ---
-curl -LsSf https://astral.sh/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"          # add to ~/.bashrc too
-uv sync                                       # respects UV_CACHE_DIR / UV_PYTHON_INSTALL_DIR from leonardo_env.sh
-.venv/bin/python -c 'import torch, stable_pretraining, stable_worldmodel; print(torch.__version__, torch.cuda.is_available())'
-# cuda.is_available() is False on the login node (no GPU) - that is expected.
+# --- uv ---
+curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$WORK/$USER/bin" INSTALLER_NO_MODIFY_PATH=1 sh
+export PATH="$WORK/$USER/bin:$PATH"          # add to ~/.bashrc too
+
+# --- swig for box2d-py (transitive gymnasium[all] dep; no swig module on Leonardo) ---
+uv venv "$WORK/$USER/.tools" && uv pip install --python "$WORK/$USER/.tools/bin/python" swig
+export PATH="$WORK/$USER/.tools/bin:$PATH"
+
+# --- venv: pin 3.13, skip labmaze; run inside tmux (login nodes kill long jobs) ---
+# labmaze 1.0.6 has no wheels for >=3.13 and its WORKSPACE bazel build needs
+# @bazel_tools//platforms constraints removed in bazel 5, so no bazel builds it.
+# Only dm_control.locomotion (maze arenas) imports it; Reacher uses dm_control.suite
+# and Cube uses ogbench/mujoco, so the project never imports it.
+tmux new -s uvsync
+uv sync --python 3.13 --no-install-package labmaze
+uv pip install --python .venv/bin/python hdf5plugin    # blosc-compressed HDF5; not in the lock
+.venv/bin/python -c 'from dm_control import suite; import ogbench, gym_pusht, stable_worldmodel.envs; print("env imports OK")'
 
 # --- generate every training config once (fills manifest.tsv) ---
 cd planning/experiments/train && ../../../.venv/bin/python generate_configs.py && cd -
 ```
 
-## 2. Data → `$FAST`
+A later plain `uv sync` would try to build labmaze again and drop hdf5plugin: always pass
+`--no-install-package labmaze` and reinstall hdf5plugin afterwards.
 
-The sweep needs Push-T and Reacher train + eval splits. Pull them from DelftBlue
-(`/scratch/$USER/smwm-data`) on a Leonardo login node; `--partial` lets you re-run after
-an interrupted transfer (login nodes may kill long CPU-heavy processes — just rerun).
+## 2. Data → `$FAST` (HuggingFace)
+
+Compute nodes have no internet, so download on a login node (Leonardo pulls ~1 GB/s from
+HuggingFace: 67 GB took two minutes), then extract and split on the serial partition.
 
 ```bash
 source "$WORK/$USER/sensorimotor-world-model/planning/experiments/leonardo_env.sh"
-tmux new -s xfer      # detachable
-rsync -avhP --partial \
-  <delftblue-user>@login.delftblue.tudelft.nl:/scratch/<delftblue-user>/smwm-data/'{pusht_expert_train,pusht_expert_eval,reacher_train,reacher_eval}.h5' \
-  "$EXTERNAL_DATA_ROOT/"
-ls -lh "$EXTERNAL_DATA_ROOT"; cindata          # quota check ($FAST is 1 TB, fixed)
+cd "$EXTERNAL_DATA_ROOT"
+for spec in lewm-tworooms:tworoom.tar.zst lewm-reacher:reacher.tar.zst lewm-cube:cube_single_expert.tar.zst; do
+  "$SMWM_PROJECT_ROOT/.venv/bin/python" -c "from huggingface_hub import hf_hub_download as d; d(repo_id='quentinll/${spec%%:*}', repo_type='dataset', filename='${spec#*:}', local_dir='.')"
+done
+# Push-T: the HF file pusht_expert_train.h5(.zst) is the FULL set; it must be called
+# pusht_expert.h5 before splitting (see scripts/make_episode_splits.py).
+
+S="$SMWM_PROJECT_ROOT/planning/experiments/split_data_leonardo.sbatch"
+sbatch "$S" tworoom.h5 tworoom.tar.zst
+sbatch "$S" reacher.h5 reacher.tar.zst
+sbatch "$S" pusht_expert.h5
+sbatch "$S" cube_single_expert.h5 cube_single_expert.tar.zst
 ```
 
-Alternative if DelftBlue is unreachable from Leonardo: `experiments/train/prepare_all_data.sh`
-downloads from HuggingFace and splits (login node, needs `EXTERNAL_DATA_ROOT` exported and
-`REPO` adjusted; cube is 300+ GB, skip it).
+Sizes: tworoom 3.2 GB compressed; reacher 23 GB → 93 GB; cube 44 GB → 95 GB; pusht 44 GB.
+The splits roughly double that (~500 GB of the 1 TB `$FAST` in total); the tarballs can be
+deleted once the splits verify.
 
 ## 3. Smoke test (debug QOS, 30 min, high priority)
 

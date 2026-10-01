@@ -74,6 +74,16 @@ Paper forward-only / random baselines (Fig. 5): TwoRoom ~60/~20, Reacher ~40/~15
 
 ## 5. In flight / next steps
 
+* **Leonardo, submitted 2026-10-01 — policy-head input ablation (seed 0, all envs,
+  no action input, paper lambda):** `<env>_policy_mlp_c2k1_noact_seed0` = pi(a_{t+1} | z_t, z_{t+1})
+  vs `<env>_policy_mlp_c1k1_seed0` = pi(a_{t+1} | z_{t+1}); compare with the existing
+  `<env>_policy_mlp_c2k1_seed0` (which also sees a_t). In train.py the window is
+  `emb[:, :L]` and the target `action[:, L-1]`, so c1 computes pi(a_0 | z_0) - the same
+  state->action map. Plus `tworoom_inverse_lambda_0p1_seed0` as the Leonardo
+  pipeline/eval reference (must reproduce ~100). Chain: split (lrd_all_serial) -> train
+  -> eval; submit script `$WORK/$USER/logs/submit_policy_inputs.sh`, logs `$WORK/$USER/smwm-logs`.
+  pusht/cube c2k1_noact seed0 also exist on DelftBlue (eval pending): a cross-cluster
+  reproducibility check.
 * Evals pending: tworoom goal_policy G=2/3/{1,2,3}, tworoom/reacher/pusht inverse+policy,
   reacher/pusht goal_policy G=2, cube inverse & policy mlp c2k1.
 * Advisor request: lambda sweep of policy on Push-T {3,10,100,300} and Reacher {0.5,50,500}
