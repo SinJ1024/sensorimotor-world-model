@@ -51,14 +51,25 @@ export PATH="$WORK/$USER/.tools/bin:$PATH"
 tmux new -s uvsync
 uv sync --python 3.13 --no-install-package labmaze
 uv pip install --python .venv/bin/python hdf5plugin    # blosc-compressed HDF5; not in the lock
+
+# --- torch: same versions, CUDA 12.6 build ---
+# The lock resolves torch 2.12.0 to its CUDA 13 build, which needs driver >= 580;
+# Leonardo runs driver 535 (CUDA 12.2) and torch fails with "NVIDIA driver on your
+# system is too old (found version 12020)". cu126 wheels run on any >= 525 driver.
+# cu13 and cu12 nvidia wheels share site-packages/nvidia/<lib>/: remove them all first.
+uv pip uninstall --python .venv/bin/python $(uv pip list --python .venv/bin/python --format freeze \
+    | sed 's/==.*//' | grep -iE '^(torch|torchvision|triton|nvidia-.*)$')
+uv pip install --python .venv/bin/python --extra-index-url https://download.pytorch.org/whl/cu126 \
+    --index-strategy unsafe-best-match "torch==2.12.0+cu126" "torchvision==0.27.0+cu126"
 .venv/bin/python -c 'from dm_control import suite; import ogbench, gym_pusht, stable_worldmodel.envs; print("env imports OK")'
 
 # --- generate every training config once (fills manifest.tsv) ---
 cd planning/experiments/train && ../../../.venv/bin/python generate_configs.py && cd -
 ```
 
-A later plain `uv sync` would try to build labmaze again and drop hdf5plugin: always pass
-`--no-install-package labmaze` and reinstall hdf5plugin afterwards.
+A later plain `uv sync` would try to build labmaze again, drop hdf5plugin and put the
+CUDA 13 torch back: always pass `--no-install-package labmaze`, then redo the hdf5plugin
+and torch steps. The login node has no GPU, so check CUDA with a `boost_qos_dbg` job.
 
 ## 2. Data → `$FAST` (HuggingFace)
 
