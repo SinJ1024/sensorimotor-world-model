@@ -1,33 +1,29 @@
 # @package _global_
 #
-# TwoRoom planning-eval environment config.
+# TwoRoom planning-eval config. Callables taken from the upstream Le-WM repo
+# (lucas-maes/le-wm, config/eval/tworoom.yaml) — same swm env and dataset format,
+# so these are the authoritative start/goal setters.
 #
-# Do NOT switch these callables to the le-wm _set_state(proprio) /
-# _set_goal_state(goal_proprio) pair. _set_goal_state re-renders the target dot
-# at goal_proprio while the dataset goal image keeps it at pos_target, so goal
-# and rollout frames disagree: on the same tworoom_inverse_lambda_0p1_seed0
-# checkpoint that pair scores ~39% versus 100% here, and 100% is what the
-# upstream experiments/planning_eval/aggregated_results.csv reports for all five
-# inverse seeds (see commit dc1e008).
+# Measured on this code: tworoom_inverse_lambda_0p1_seed0 scores 100% with these
+# callables (DelftBlue job 222436, repo 66515bc), and every TwoRoom number in the
+# policy-regularizer study was produced with them. The set_wrapper_attr /
+# pos_agent,pos_target variant (and its "~39% with _set_state" note in dc1e008)
+# lives on the add-h5-inspector side branch and predates the paper-CEM eval.py.
 
 world:
   env_name: swm/TwoRoom-v1
 
 eval:
   dataset_name: tworoom_eval
-  # The le-wm TwoRoom dataset stores start/goal as pos_agent/pos_target (not the
-  # swm variation.* mechanism), and there is no seed column, so reset() would
-  # place the agent/target randomly. These callables set the env's runtime
-  # agent_position / target_position from the sampled dataset row before rollout.
   callables:
-    - method: set_wrapper_attr
+    - method: _set_state
       args:
-        name: {value: agent_position, in_dataset: false}
-        value: {value: pos_agent, in_dataset: true}
-    - method: set_wrapper_attr
+        state:
+          value: proprio
+    - method: _set_goal_state
       args:
-        name: {value: target_position, in_dataset: false}
-        value: {value: pos_target, in_dataset: true}
+        goal_state:
+          value: goal_proprio
 
 dataset:
   keys_to_cache:
