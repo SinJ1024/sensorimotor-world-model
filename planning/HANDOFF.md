@@ -80,8 +80,11 @@ Paper forward-only / random baselines (Fig. 5): TwoRoom ~60/~20, Reacher ~40/~15
   `<env>_policy_mlp_c2k1_seed0` (which also sees a_t). In train.py the window is
   `emb[:, :L]` and the target `action[:, L-1]`, so c1 computes pi(a_0 | z_0) - the same
   state->action map. Plus `tworoom_inverse_lambda_0p1_seed0` as the Leonardo
-  pipeline/eval reference (must reproduce ~100). Chain: split (lrd_all_serial) -> train
-  -> eval; submit script `$WORK/$USER/logs/submit_policy_inputs.sh`, logs `$WORK/$USER/smwm-logs`.
+  pipeline/eval reference (must reproduce ~100). Data splits done on lrd_all_serial; each
+  run is ONE job `experiments/train_eval_leonardo.sbatch` (train then CEM eval in the same
+  allocation, so the eval does not queue twice), jobs 59127409-59127422, submitted by
+  `$WORK/$USER/logs/resubmit_train_eval.sh`; logs `$WORK/$USER/smwm-logs`. Queue waits on
+  boost_usr_prod were 39-54 h for jobs submitted 2026-09-28/29 (minutes the week before).
   pusht/cube c2k1_noact seed0 also exist on DelftBlue (eval pending): a cross-cluster
   reproducibility check.
 * Evals pending: tworoom goal_policy G=2/3/{1,2,3}, tworoom/reacher/pusht inverse+policy,
