@@ -94,6 +94,15 @@ Paper forward-only / random baselines (Fig. 5): TwoRoom ~60/~20, Reacher ~40/~15
   serial chain (jobs 895214-895217, <= 1 GPU of the shared education account;
   `~/smwm-jobs/submit_tworoom_inputs.sh`); Leonardo keeps the TwoRoom inverse reference
   and reacher/pusht/cube c2k1_noact + c1k1.
+  **2026-10-02 rebalance:** DelftBlue now runs 17 train+eval jobs on 2 lanes
+  (`~/smwm-jobs/submit_sweeps_delftblue.sh`, wrapper `~/smwm-jobs/train_eval_delftblue.sbatch`,
+  jobs 902306-902322): A reacher noact/c1, pusht c1, cube c1 (moved off Leonardo);
+  B pusht/cube noact seeds 1,2; C1 Push-T lambda {5,10,20} x seeds {0,1};
+  C2 goal_policy G=[3],[1,2,3] for reacher and pusht. Leonardo keeps only the TwoRoom
+  inverse reference and the pusht/cube noact repro checks (59127409/14/16). DelftBlue
+  maintenance 2026-10-03 00:00 -> 10-05 09:00: only the two reacher runs finish before it.
+  Layers 1 and 3 of submit_leonardo_experiments.sh are therefore on DelftBlue; only
+  layer 2 (5-seed main table) is unassigned.
   NOTE: the DelftBlue checkout's main has a local commit 2cf7c14 (train_staged.sbatch)
   and diverges from origin/main; do not pull there without merging.
 * Evals pending: tworoom goal_policy G=2/3/{1,2,3}, tworoom/reacher/pusht inverse+policy,
