@@ -1,8 +1,9 @@
 #!/bin/bash
 # Refresh planning/RESULTS.md from every cluster. Run on the local machine.
 #
-# On each cluster: scripts/summarize_runs.py -> TSV (it loads every checkpoint,
-# ~4 min on DelftBlue) plus the current squeue; then results_table.py merges them.
+# On each cluster: the LOCAL scripts/summarize_runs.py is streamed over ssh and
+# run from /tmp (so every cluster uses the same version, whatever its checkout)
+# -> TSV, plus the current squeue; then results_table.py merges them.
 # A cluster that cannot be reached, or has no finished runs yet, contributes only
 # what it can (its queue, or nothing).
 #
@@ -11,7 +12,12 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DELFTBLUE_HOST="${DELFTBLUE_HOST:-delftblue13}"
+if [ -z "${DELFTBLUE_HOST:-}" ]; then   # first DelftBlue login node that answers
+    for h in delftblue13 delftblue14; do
+        ssh -o BatchMode=yes -o ConnectTimeout=10 "$h" true 2>/dev/null && { DELFTBLUE_HOST=$h; break; }
+    done
+    DELFTBLUE_HOST="${DELFTBLUE_HOST:-delftblue13}"
+fi
 LEONARDO_HOST="${LEONARDO_HOST:-leonardo}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -20,7 +26,8 @@ ARGS=()
 fetch() {  # fetch <label> <host> <summary command> <queue command>
     local label=$1 host=$2 summary=$3 queue=$4
     echo ">> $label ($host)"
-    if ssh -o ConnectTimeout=15 "$host" "$summary" > "$TMP/$label.tsv" 2> "$TMP/$label.err" \
+    if ssh -o ConnectTimeout=15 "$host" "$summary" < "$HERE/summarize_runs.py" \
+            > "$TMP/$label.tsv" 2> "$TMP/$label.err" \
             && [ "$(wc -l < "$TMP/$label.tsv")" -gt 1 ]; then
         ARGS+=(--tsv "$label=$TMP/$label.tsv")
         echo "   $(( $(wc -l < "$TMP/$label.tsv") - 1 )) runs"
@@ -32,13 +39,15 @@ fetch() {  # fetch <label> <host> <summary command> <queue command>
     fi
 }
 
-# summarize_runs.py writes the TSV with --out; print it to stdout for transfer.
+# The summary command saves the streamed script, runs it (it writes the TSV with
+# --out) and prints the TSV for transfer.
+S='S=/tmp/$USER-summarize_runs.py; O=/tmp/$USER-smwm-summary.tsv; rm -f $O; cat > $S;'
 fetch DelftBlue "$DELFTBLUE_HOST" \
-    'rm -f /tmp/$USER-smwm-summary.tsv; cd ~/sensorimotor-world-model && for p in .venv/bin/python ~/conda-envs/biased-dreams-dreamer/bin/python; do [ -x "$p" ] && "$p" -c "import torch, yaml" 2>/dev/null && break; done && "$p" planning/scripts/summarize_runs.py --runs-root /scratch/$USER/smwm-runs --eval-root /scratch/$USER/smwm-paper-eval --budget 50 --out /tmp/$USER-smwm-summary.tsv >/dev/null 2>&1; cat /tmp/$USER-smwm-summary.tsv' \
+    "$S"' cd ~/sensorimotor-world-model && for p in .venv/bin/python ~/conda-envs/biased-dreams-dreamer/bin/python; do [ -x "$p" ] && "$p" -c "import torch, yaml" 2>/dev/null && break; done && "$p" $S --runs-root /scratch/$USER/smwm-runs --eval-root /scratch/$USER/smwm-paper-eval --budget 50 --out $O >/dev/null 2>&1; cat $O' \
     'squeue -u $USER -h -o "%i	%j	%T	%M"'
 
 fetch Leonardo "$LEONARDO_HOST" \
-    'rm -f /tmp/$USER-smwm-summary.tsv; cd $WORK/$USER/sensorimotor-world-model && .venv/bin/python planning/scripts/summarize_runs.py --runs-root $WORK/$USER/smwm-runs --eval-root $WORK/$USER/smwm-paper-eval --budget 50 --out /tmp/$USER-smwm-summary.tsv >/dev/null 2>&1; cat /tmp/$USER-smwm-summary.tsv' \
+    "$S"' cd $WORK/$USER/sensorimotor-world-model && .venv/bin/python $S --runs-root $WORK/$USER/smwm-runs --eval-root $WORK/$USER/smwm-paper-eval --budget 50 --out $O >/dev/null 2>&1; cat $O' \
     'squeue -u $USER -h -o "%i	%j	%T	%M" | grep -P "\t(te|t|e)-"'
 
 if ! printf '%s\n' ${ARGS[@]+"${ARGS[@]}"} | grep -q -- '--tsv'; then

@@ -5,9 +5,10 @@ Each cluster runs scripts/summarize_runs.py (which verifies every run against th
 paper hyper-parameters and joins its CEM result) and writes a TSV. This script
 labels the rows with the cluster they came from and writes RESULTS.md with
   1. the policy-head input ablation (seed 0, one row per environment),
-  2. every run, grouped by environment,
-  3. jobs still queued or running (optional, from squeue dumps),
-  4. runs whose verdict is not PASS.
+  2. mean and spread over seeds for every run family with >= 2 evaluated seeds,
+  3. every run, grouped by environment,
+  4. jobs still queued or running (optional, from squeue dumps),
+  5. runs whose verdict is not PASS.
 
 Usage:
   python results_table.py --tsv DelftBlue=db.tsv --tsv Leonardo=leo.tsv \
@@ -20,6 +21,8 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import re
+import statistics
 from collections import defaultdict
 from pathlib import Path
 
@@ -42,7 +45,7 @@ DETAIL_COLS = [
     ("cluster", "cluster"), ("run", "run"), ("method", "method"), ("λ", "lambda"),
     ("step", "step"), ("eff rank", "eff_rank"), ("pred loss", "pred_loss"),
     ("inv loss", "inv_loss"), ("policy loss", "policy_loss"), ("goal loss", "goal_loss"),
-    ("success", "success"), ("verdict", "verdict"),
+    ("success", "success"), ("verdict", "verdict"), ("other evals", "other_evals"),
 ]
 
 
@@ -113,6 +116,35 @@ def ablation_cell(rows: list[dict], queue: list[list[str]], env: str, pattern: s
     return " / ".join(parts) if parts else "–"
 
 
+def seed_families(rows: list[dict]) -> list[list[str]]:
+    """One row per (cluster, run family) with >= 2 evaluated seeds.
+
+    A family is the run name without its _seed<N> suffix. Clusters are kept apart:
+    the same run on two clusters is a reproducibility check, not an extra seed.
+    """
+    groups = defaultdict(list)
+    for r in rows:
+        m = re.match(r"(.+)_seed(\d+)$", r["run"])
+        try:
+            value = float(r.get("success") or "")
+        except ValueError:  # empty, or a legacy "a/b" with ambiguous seed labels
+            continue
+        if m:
+            groups[(r.get("env", ""), m.group(1), r["cluster"])].append((int(m.group(2)), value))
+    out = []
+    for (env, family, cluster), seeds in sorted(groups.items(),
+            key=lambda kv: (ENV_ORDER.index(kv[0][0]) if kv[0][0] in ENV_ORDER else 9, kv[0][1], kv[0][2])):
+        if len(seeds) < 2:
+            continue
+        seeds.sort()
+        vals = [v for _, v in seeds]
+        sd = statistics.stdev(vals)
+        out.append([ENV_LABEL.get(env, env), family, cluster, str(len(vals)),
+                    f"{statistics.mean(vals):.1f} ± {sd:.1f}",
+                    ", ".join(f"s{k}: {num(str(v))}" for k, v in seeds)])
+    return out
+
+
 def markdown_table(header: list[str], body: list[list[str]]) -> list[str]:
     lines = ["| " + " | ".join(header) + " |", "|" + "|".join("---" for _ in header) + "|"]
     lines += ["| " + " | ".join(cell.replace("|", "\\|") for cell in row) + " |" for row in body]
@@ -154,6 +186,11 @@ def main() -> None:
                     + [FORWARD_ONLY[env]])
     md += markdown_table(header, body)
 
+    md += ["", "## Across seeds", "",
+           "Run families with at least two evaluated seeds; mean ± sample standard deviation.", ""]
+    fams = seed_families(rows)
+    md += markdown_table(["env", "run family", "cluster", "n", "success", "per seed"], fams) if fams else ["(none yet)"]
+
     md += ["", "## All runs", ""]
     by_env = defaultdict(list)
     for r in rows:
@@ -164,7 +201,7 @@ def main() -> None:
         md += [f"### {ENV_LABEL.get(env, env or 'unknown')}", ""]
         group = sorted(by_env[env], key=lambda r: (r.get("method", ""), r["run"], r["cluster"]))
         md += markdown_table([h for h, _ in DETAIL_COLS],
-                             [[num(r.get(k)) if k not in ("run", "method", "cluster", "verdict") else r.get(k, "")
+                             [[num(r.get(k)) if k not in ("run", "method", "cluster", "verdict", "other_evals") else r.get(k, "")
                                for _, k in DETAIL_COLS] for r in group])
         md.append("")
 

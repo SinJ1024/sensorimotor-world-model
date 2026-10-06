@@ -175,7 +175,12 @@ def summarize(run, eval_root, budget):
     if not ck.is_file():
         devs.append("NO_CHECKPOINT")
     else:
-        d = torch.load(ck, map_location="cpu", weights_only=False)
+        # Only the training bookkeeping is needed: memory-map so the 200+ MB of
+        # weights are never read (falls back for old torch / legacy checkpoints).
+        try:
+            d = torch.load(ck, map_location="cpu", weights_only=False, mmap=True)
+        except (TypeError, RuntimeError):
+            d = torch.load(ck, map_location="cpu", weights_only=False)
         s = (d.get("lr_schedulers") or [{}])[0]
         ep, gs = d.get("epoch"), d.get("global_step")
         ms, wu = s.get("max_steps"), s.get("warmup_steps")
@@ -209,8 +214,23 @@ def summarize(run, eval_root, budget):
         devs.append("metrics.csv missing")
 
     # ---- planning evaluation ----------------------------------------------
+    # The evaluator files results under seed_<training seed>, and that label also
+    # picks the CEM seed. Report the evaluation whose label matches this run's own
+    # training seed; an evaluation filed under another seed used the wrong CEM
+    # seed (e.g. reacher_inverse_lambda_1_seed1 was once run as seed_0) and is
+    # only listed in other_evals.
     ev = find_eval(eval_root, env, run.name, budget)
-    r["success"] = "/".join(f"{ev[s]:g}" for s in sorted(ev)) if ev else ""
+    own = r["seed"]
+    if own is None:
+        m = re.search(r"_seed(\d+)$", run.name)
+        own = int(m.group(1)) if m else None
+    if own in ev:
+        r["success"] = f"{ev[own]:g}"
+        others = {s: v for s, v in ev.items() if s != own}
+    else:
+        r["success"] = "/".join(f"{ev[s]:g}" for s in sorted(ev)) if ev else ""
+        others = {}
+    r["other_evals"] = ", ".join(f"seed_{s}={v:g}" for s, v in sorted(others.items()))
     r["n_eval"] = len(ev)
 
     r["verdict"] = "PASS" if not devs else "DEVIATE"
@@ -220,7 +240,7 @@ def summarize(run, eval_root, budget):
 
 COLS = ["env", "run", "method", "lambda", "bs", "num_steps", "seed", "epoch", "step", "max_steps",
         "last_lr", "emb", "eff_rank", "pred_loss", "inv_loss", "policy_loss", "goal_loss",
-        "success", "n_eval", "verdict", "deviations"]
+        "success", "n_eval", "verdict", "deviations", "other_evals"]
 SHOW = ["env", "run", "method", "lambda", "step", "max_steps", "eff_rank", "pred_loss",
         "inv_loss", "policy_loss", "goal_loss", "success", "verdict"]
 
