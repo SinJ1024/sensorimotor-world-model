@@ -78,3 +78,23 @@ to override their defaults. On DelftBlue the launcher reuses
 PyTorch, `stable-worldmodel`, and `stable-pretraining` before evaluation. Each
 job saves its resolved evaluation config and a `metrics.json` containing only
 `success_rate`.
+
+## `aggregated_results.csv`: paper runs and this study's runs
+
+The file holds every planning result in one place. The `source` column says where a
+row comes from:
+
+- `upstream`: the 80 released paper runs (Fig. 5). `aggregate_results.py` writes
+  these and keeps all other rows when it rewrites the file; `plot_results.ipynb`
+  plots only these.
+- `DelftBlue`, `Leonardo`: the policy-regularizer study, one row per run and
+  cluster. `scripts/refresh_results.sh` (or `scripts/sync_aggregated_results.py`)
+  replaces these rows with the current results of every cluster.
+
+Study rows use the same columns and seeds as the paper rows, with `method` set to
+the run family (`inverse`, `policy_mlp_c2k1_noact`, `goalpolicy_g123`,
+`policy_mlp_c2k1_lam5p0`, ...) and extra columns `regularizer`, `lambda`,
+`eff_rank`, `verdict` and `other_evals` (evaluations filed under another seed
+label, which used the wrong CEM seed). `status` is `ok`, `no_eval` (trained, not
+evaluated yet) or `incomplete` (training not finished). A run on both clusters
+appears twice, once per `source`: count it once when averaging seeds.

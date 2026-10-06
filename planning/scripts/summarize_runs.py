@@ -111,8 +111,11 @@ def describe_method(cfg):
     return ("+".join(parts) if parts else "forward_only"), active
 
 
-def find_eval(eval_root, env, run_name, budget):
-    """Newest metrics.json per (seed, budget) for this run -> {seed: success_rate}."""
+def find_eval(eval_root, env, run_name, budget, paths=None):
+    """Newest metrics.json per (seed, budget) for this run -> {seed: success_rate}.
+
+    When a dict is passed as ``paths`` it is filled with {seed: metrics.json path}.
+    """
     pattern = os.path.join(eval_root, EVAL_SLUG[env], run_name, "seed_*", f"budget_{budget}", "job_*", "results", "seed_*", "metrics.json")
     best = {}
     for path in glob.glob(pattern):
@@ -124,6 +127,8 @@ def find_eval(eval_root, env, run_name, budget):
             best[seed] = (job, path)
     out = {}
     for seed, (job, path) in best.items():
+        if paths is not None:
+            paths[seed] = path
         try:
             out[seed] = float(json.load(open(path))["metrics"]["success_rate"])
         except (KeyError, ValueError, json.JSONDecodeError):
@@ -132,7 +137,7 @@ def find_eval(eval_root, env, run_name, budget):
 
 
 def summarize(run, eval_root, budget):
-    r = {"run": run.name}
+    r = {"run": run.name, "run_dir": str(run.resolve())}
     devs = []
     cfg_path = run / "config.yaml"
     if not cfg_path.is_file():
@@ -219,13 +224,15 @@ def summarize(run, eval_root, budget):
     # training seed; an evaluation filed under another seed used the wrong CEM
     # seed (e.g. reacher_inverse_lambda_1_seed1 was once run as seed_0) and is
     # only listed in other_evals.
-    ev = find_eval(eval_root, env, run.name, budget)
+    ev_paths = {}
+    ev = find_eval(eval_root, env, run.name, budget, ev_paths)
     own = r["seed"]
     if own is None:
         m = re.search(r"_seed(\d+)$", run.name)
         own = int(m.group(1)) if m else None
     if own in ev:
         r["success"] = f"{ev[own]:g}"
+        r["metrics_path"] = ev_paths[own]
         others = {s: v for s, v in ev.items() if s != own}
     else:
         r["success"] = "/".join(f"{ev[s]:g}" for s in sorted(ev)) if ev else ""
@@ -240,7 +247,7 @@ def summarize(run, eval_root, budget):
 
 COLS = ["env", "run", "method", "lambda", "bs", "num_steps", "seed", "epoch", "step", "max_steps",
         "last_lr", "emb", "eff_rank", "pred_loss", "inv_loss", "policy_loss", "goal_loss",
-        "success", "n_eval", "verdict", "deviations", "other_evals"]
+        "success", "n_eval", "verdict", "deviations", "other_evals", "run_dir", "metrics_path"]
 SHOW = ["env", "run", "method", "lambda", "step", "max_steps", "eff_rank", "pred_loss",
         "inv_loss", "policy_loss", "goal_loss", "success", "verdict"]
 
