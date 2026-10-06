@@ -1,0 +1,32 @@
+<section>
+<h2>Findings</h2>
+<ul class="findings">
+  <li><b>Inverse dynamics is the strongest regularizer in every environment.</b> TwoRoom 100, Reacher 71
+  (68 / 74), Push-T 89, Cube 81, in line with the released paper runs (100 / 71.4 / 84.4 / 83.0).</li>
+  <li><b>Any head that also sees a future state comes back to inverse level.</b> The goal-conditioned
+  policy with G = 2 scores Reacher 71 and Push-T 87 (inverse 71 / 89), TwoRoom 100 for G = 2, 3 and 1,2,3;
+  adding the inverse head to the policy gives Reacher 72 and Push-T 82. Conditioning on z<sub>t+G</sub>
+  turns the head into an inverse model again.</li>
+  <li><b>A next-action policy head with a<sub>t</sub> as input only helps where the next action can be
+  read from the state.</b> TwoRoom (scripted data) reaches 90 ± 4.2; Push-T 37 and Cube 69 sit between
+  forward-only (2.6 / 46.8) and inverse; Reacher (SAC data) stays at 11, the random level (13.6).</li>
+  <li><b>Dropping a<sub>t</sub> from the head input is the largest single gain.</b> Push-T rises to
+  65.3 ± 3.2 and Cube to 78.0 ± 4.4 (3 seeds each), TwoRoom to 100. Without a<sub>t</sub> the head
+  cannot copy a<sub>t</sub> into a<sub>t+1</sub>, so the encoder has to carry the state that predicts the
+  next action. The signal still comes from the behaviour policy: Reacher stays at 10.</li>
+  <li><b>The earlier state z<sub>t</sub> matters.</b> A head that sees only z<sub>t+1</sub> is lower in
+  every environment where the policy works: TwoRoom 88, Push-T 57, Cube 66.</li>
+  <li><b>Neither architecture nor λ closes the gap to inverse.</b> MLP, Mamba and Transformer heads,
+  context up to 16 latents, multi-step targets, and λ over three orders of magnitude all stay below
+  inverse; long contexts hurt on TwoRoom (35–50 at L = 16).</li>
+</ul>
+<h2 style="margin-top:8px">Read with care</h2>
+<ul class="caveats">
+  <li>Most cells are a single seed. Seed spread on TwoRoom is up to ±25 points at small λ, so gaps under
+  about 10 points are not conclusive (TwoRoom one-state 88 vs +a<sub>t</sub> 90).</li>
+  <li>The +a<sub>t</sub> baselines for Push-T and Cube are single seeds; the Cube gain (78.0 ± 4.4 vs 69)
+  is about two standard deviations.</li>
+  <li>Goal-conditioned heads with farther goals (G = 3 and G = 1,2,3) on Reacher and Push-T are still
+  running; their cells fill in when the jobs finish.</li>
+</ul>
+</section>

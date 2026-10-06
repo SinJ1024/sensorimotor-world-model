@@ -30,8 +30,20 @@ ENV_ORDER = ["tworoom", "reacher", "pusht", "cube"]
 ENV_LABEL = {"tworoom": "TwoRoom", "reacher": "Reacher", "pusht": "Push-T", "cube": "OGBench-Cube"}
 # Paper lambda, reused for every regularizer (paper Table 2).
 LAMBDA = {"tworoom": "0.1", "reacher": "5", "pusht": "30", "cube": "1"}
-# Paper Fig. 5 forward-only baseline, for orientation.
-FORWARD_ONLY = {"tworoom": "~60", "reacher": "~40", "pusht": "~35", "cube": "–"}
+# Upstream reference numbers (same CEM protocol, 5 seeds) shipped with the repo.
+UPSTREAM_CSV = Path(__file__).resolve().parents[1] / "experiments" / "planning_eval" / "aggregated_results.csv"
+
+
+def upstream_means(budget: str = "50") -> dict[tuple[str, str], float]:
+    """{(env, method): mean success} from the upstream aggregated_results.csv."""
+    vals = defaultdict(list)
+    if UPSTREAM_CSV.is_file():
+        with UPSTREAM_CSV.open(newline="") as f:
+            for r in csv.DictReader(f):
+                if r.get("status") == "ok" and r.get("eval_budget") == budget:
+                    env = "cube" if r["env"] == "ogbcube" else r["env"]
+                    vals[(env, r["method"])].append(float(r["success_rate"]))
+    return {k: statistics.mean(v) for k, v in vals.items()}
 
 # Ablation columns: header, run-name pattern ({env} is substituted), inputs.
 ABLATION = [
@@ -175,15 +187,19 @@ def main() -> None:
         "## Policy-head input ablation (seed 0)",
         "",
         "Every regularizer uses the paper λ of its environment; `noact` and `c1` feed no actions "
-        "to the head. `–` = not run; *italics* = queued or running.",
+        "to the head. `–` = not run; *italics* = queued or running. Upstream columns: mean of "
+        "5 seeds from `experiments/planning_eval/aggregated_results.csv` (same protocol).",
         "",
     ]
-    header = ["env", "λ"] + [f"{name}<br>`{inputs}`" for name, _, inputs in ABLATION] + ["forward-only (paper)"]
+    up = upstream_means()
+    ref = lambda env, m: f"{up[(env, m)]:.1f}" if (env, m) in up else "–"  # noqa: E731
+    header = (["env", "λ"] + [f"{name}<br>`{inputs}`" for name, _, inputs in ABLATION]
+              + ["upstream inverse", "upstream forward-only", "upstream random"])
     body = []
     for env in ENV_ORDER:
         body.append([ENV_LABEL[env], LAMBDA[env]]
                     + [ablation_cell(rows, queue, env, pattern) for _, pattern, _ in ABLATION]
-                    + [FORWARD_ONLY[env]])
+                    + [ref(env, "inverse"), ref(env, "forward_only"), ref(env, "random")])
     md += markdown_table(header, body)
 
     md += ["", "## Across seeds", "",

@@ -55,7 +55,10 @@ Cross-environment:
 | Push-T | DINO-WM expert | 46% (linear, from a_t alone) | ~75 / 89 | 37 | 25 | 17 |
 | Cube | OGBench scripted | – | 84 / (eval pending) | (pending) | | |
 
-Paper forward-only / random baselines (Fig. 5): TwoRoom ~60/~20, Reacher ~40/~15, Push-T ~35/~10.
+Upstream baselines (experiments/planning_eval/aggregated_results.csv, same protocol, 5-seed means;
+inverse / SIGReg / forward-only / random): TwoRoom 100 / 92.6 / 34.6 / 30.0, Reacher 71.4 / 67.8 /
+9.8 / 13.6, Push-T 84.4 / 88.8 / 2.6 / 2.8, Cube 83.0 / 60.0 / 46.8 / 43.0. (The ~60/~40/~35
+forward-only values previously quoted here were read off Fig. 5 and are wrong.)
 
 ## 4. Mechanism (the thesis argument)
 
@@ -65,7 +68,8 @@ Paper forward-only / random baselines (Fig. 5): TwoRoom ~60/~20, Reacher ~40/~15
   action unpredictable (policy loss 0.999, even on a healthy latent in the inverse+policy run)
   -> zero anti-collapse pressure -> collapse -> random-level planning, independent of head
   architecture. Push-T: predictable (expert), head learns (loss ~0.1), but the latent encodes
-  *intent* rather than controllable dynamics -> no collapse, yet planning ~= forward-only.
+  *intent* rather than controllable dynamics -> no collapse; planning 37, far above forward-only
+  (2.6) but far below inverse (84).
   TwoRoom: goal-directed scripted data where intent == position == the whole controllable
   state, so policy nearly matches inverse; still fragile (lambda, seed, long context).
 * Any fix that conditions the action prediction on a *future* state turns it into an inverse
@@ -95,8 +99,8 @@ Paper forward-only / random baselines (Fig. 5): TwoRoom ~60/~20, Reacher ~40/~15
   noact and c1 stay at random level. So it is NOT the inverse-dynamics trace in
   z_{t+1} - z_t (that hypothesis predicted a Reacher gain and is refuted). c1 < noact
   everywhere: z_t adds information beyond z_{t+1}.
-  Push-T lambda with a_t: 3:39, 5:35.5, 10:39.5, 20:39.5, 30:37, 100:43, 300:40 -> flat at
-  forward-only level, as predicted.
+  Push-T lambda with a_t: 3:39, 5:35.5, 10:39.5, 20:39.5, 30:37, 100:43, 300:40 -> flat in
+  lambda: well above forward-only (2.6), far below inverse (84); stays < 50 as predicted.
   reacher_inverse_lambda_1_seed1 is 74, not 64: the 64 came from an eval filed under
   seed_0 (wrong CEM seed); summarize_runs.py now reports the matching seed only.
   Split across clusters on 2026-10-01: DelftBlue runs the two TwoRoom ablations as one

@@ -55,3 +55,10 @@ if ! printf '%s\n' ${ARGS[@]+"${ARGS[@]}"} | grep -q -- '--tsv'; then
     exit 1
 fi
 python3 "$HERE/results_table.py" "${ARGS[@]}" --out "$HERE/../RESULTS.md"
+
+# Optionally keep the raw per-cluster TSVs (e.g. for plots or a report page).
+if [ -n "${SMWM_RESULTS_TSV_DIR:-}" ]; then
+    mkdir -p "$SMWM_RESULTS_TSV_DIR"
+    cp "$TMP"/*.tsv "$TMP"/*.queue "$SMWM_RESULTS_TSV_DIR"/ 2>/dev/null
+    echo "kept raw TSVs in $SMWM_RESULTS_TSV_DIR"
+fi
