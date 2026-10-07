@@ -116,6 +116,12 @@ forward-only values previously quoted here were read off Fig. 5 and are wrong.)
   maintenance 2026-10-03 00:00 -> 10-05 09:00: only the two reacher runs finish before it.
   Layers 1 and 3 of submit_leonardo_experiments.sh are therefore on DelftBlue; only
   layer 2 (5-seed main table) is unassigned.
+  **2026-10-07, no-action heads (DelftBlue jobs 921934-921962, 28 train+eval, 2 lanes,
+  `~/smwm-jobs/submit_noact_delftblue.sh`):** c2 no-act pi(z_t, z_{t+1}) and c1 pi(z_{t+1}),
+  both with use_action=false. A: seeds 1,2 wherever missing, so every env has 3 seeds of
+  both heads. B: lambda = paper x {0.1, 10}, seed 0, both heads (TwoRoom 0.01/1, Push-T
+  3/300, Cube 0.1/10, Reacher 0.5/50). Run names <env>_policy_mlp_c2k1_noact[_lamX]_seedS
+  and <env>_policy_mlp_c1k1[_lamX]_seedS. ~68 h per lane.
   NOTE: the DelftBlue checkout's main has a local commit 2cf7c14 (train_staged.sbatch)
   and diverges from origin/main; do not pull there without merging.
 * Evals pending: tworoom goal_policy G=2/3/{1,2,3}, tworoom/reacher/pusht inverse+policy,
