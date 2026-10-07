@@ -1,6 +1,6 @@
 # Results
 
-Generated 2026-10-06 20:51 from `scripts/summarize_runs.py` on: DelftBlue, Leonardo. Success = paper CEM protocol (100 tasks, goal 25 primitive steps ahead, budget 50), in %. Regenerate with `scripts/results_table.py` (see its docstring); do not edit by hand.
+Generated 2026-10-07 13:41 from `scripts/summarize_runs.py` on: DelftBlue, Leonardo. Success = paper CEM protocol (100 tasks, goal 25 primitive steps ahead, budget 50), in %. Regenerate with `scripts/results_table.py` (see its docstring); do not edit by hand.
 
 ## Policy-head input ablation (seed 0)
 
@@ -11,7 +11,7 @@ Every regularizer uses the paper λ of its environment; `noact` and `c1` feed no
 | TwoRoom | 0.1 | 100 (DelftBlue) / 100 (Leonardo) | 89 | 100 | 88 | 100.0 | 34.6 | 30.0 |
 | Reacher | 5 | 68 | 11 | 10 | 14 | 71.4 | 9.8 | 13.6 |
 | Push-T | 30 | 89 | 37 | 69 (DelftBlue) / 69 (Leonardo) | 57 | 84.4 | 2.6 | 2.8 |
-| OGBench-Cube | 1 | 81 | 69 | 80 (DelftBlue) / *no eval* (Leonardo) | 66 | 83.0 | 46.8 | 43.0 |
+| OGBench-Cube | 1 | 81 | 69 | 80 (DelftBlue) / 79 (Leonardo) | 66 | 83.0 | 46.8 | 43.0 |
 
 ## Across seeds
 
@@ -87,9 +87,9 @@ Run families with at least two evaluated seeds; mean ± sample standard deviatio
 
 | cluster | run | method | λ | step | eff rank | pred loss | inv loss | policy loss | goal loss | success | verdict | other evals |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| DelftBlue | reacher_goalpolicy_g123_seed0 | goal_policy(G=[1,2,3],k1) | 5 | 51184 | 18.9 | 0.00121 |  |  | 0.884 |  | DEVIATE |  |
+| DelftBlue | reacher_goalpolicy_g123_seed0 | goal_policy(G=[1,2,3],k1) | 5 | 63980 | 18.2 | 0.001 |  |  | 0.884 | 69 | PASS |  |
 | DelftBlue | reacher_goalpolicy_g2_seed0 | goal_policy(G=[2],k1) | 5 | 65740 | 18.7 | 0.00147 |  |  | 0.892 | 71 | PASS |  |
-| DelftBlue | reacher_goalpolicy_g3_seed0 | goal_policy(G=[3],k1) | 5 | 51184 | 20.6 | 0.00193 |  |  | 0.929 |  | DEVIATE |  |
+| DelftBlue | reacher_goalpolicy_g3_seed0 | goal_policy(G=[3],k1) | 5 | 63980 | 19.9 | 0.00145 |  |  | 0.928 | 69 | PASS |  |
 | DelftBlue | reacher_inverse_lambda_1_seed0 | inverse | 5 | 67500 | 17.1 | 0.00132 | 0.832 |  |  | 68 | PASS |  |
 | DelftBlue | reacher_inverse_lambda_1_seed1 | inverse | 5 | 67500 | 19.3 | 0.00134 | 0.832 |  |  | 74 | PASS | seed_0=64 |
 | DelftBlue | reacher_invpolicy_mlp_c2k1_seed0 | inverse+policy(mlp,c2,k1) | 5/5 | 67500 | 18 | 0.0013 | 0.832 | 0.999 |  | 72 | PASS |  |
@@ -106,7 +106,9 @@ Run families with at least two evaluated seeds; mean ± sample standard deviatio
 
 | cluster | run | method | λ | step | eff rank | pred loss | inv loss | policy loss | goal loss | success | verdict | other evals |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
+| DelftBlue | pusht_goalpolicy_g123_seed0 | goal_policy(G=[1,2,3],k1) | 30 | 69640 | 66 | 0.0331 |  |  | 0.109 | 85 | PASS |  |
 | DelftBlue | pusht_goalpolicy_g2_seed0 | goal_policy(G=[2],k1) | 30 | 72920 | 68.9 | 0.042 |  |  | 0.12 | 87 | PASS |  |
+| DelftBlue | pusht_goalpolicy_g3_seed0 | goal_policy(G=[3],k1) | 30 | 69640 | 80 | 0.0503 |  |  | 0.13 | 84 | PASS |  |
 | DelftBlue | pusht_inverse_lambda_30_seed0 | inverse | 30 | 76210 | 49 | 0.0287 | 0.0925 |  |  | 89 | PASS |  |
 | DelftBlue | pusht_invpolicy_mlp_c2k1_seed0 | inverse+policy(mlp,c2,k1) | 30/30 | 76210 | 81.8 | 0.0492 | 0.0927 | 0.144 |  | 82 | PASS |  |
 | DelftBlue | pusht_policy_mamba_c4k1_seed0 | policy(mamba,c4,k1) | 30 | 69640 | 114 | 0.0237 |  | 0.0981 |  | 17 | PASS |  |
@@ -134,24 +136,12 @@ Run families with at least two evaluated seeds; mean ± sample standard deviatio
 | DelftBlue | cube_inverse_lambda_1_seed0 | inverse | 1 | 67500 | 39.4 | 0.00166 | 0.0863 |  |  | 81 | PASS |  |
 | DelftBlue | cube_policy_mlp_c1k1_seed0 | policy(mlp,c1,k1) | 1 | 67500 | 77.4 | 0.0024 |  | 0.369 |  | 66 | PASS |  |
 | DelftBlue | cube_policy_mlp_c2k1_noact_seed0 | policy(mlp,c2,k1) | 1 | 67500 | 39.4 | 0.00329 |  | 0.269 |  | 80 | PASS |  |
-| Leonardo | cube_policy_mlp_c2k1_noact_seed0 | policy(mlp,c2,k1) | 1 | 60750 |  |  |  |  |  |  | DEVIATE |  |
+| Leonardo | cube_policy_mlp_c2k1_noact_seed0 | policy(mlp,c2,k1) | 1 | 67500 | 41.7 | 0.00319 |  | 0.268 |  | 79 | PASS |  |
 | DelftBlue | cube_policy_mlp_c2k1_noact_seed1 | policy(mlp,c2,k1) | 1 | 67500 | 40.1 | 0.00325 |  | 0.268 |  | 81 | PASS |  |
 | DelftBlue | cube_policy_mlp_c2k1_noact_seed2 | policy(mlp,c2,k1) | 1 | 67500 | 38.5 | 0.00341 |  | 0.271 |  | 73 | PASS |  |
 | DelftBlue | cube_policy_mlp_c2k1_seed0 | policy(mlp,c2,k1) | 1 | 67500 | 51.1 | 0.00143 |  | 0.224 |  | 69 | PASS |  |
 
 ## Queued / running
 
-| cluster | job | name | state | elapsed |
-|---|---|---|---|---|
-| DelftBlue | 902322 | te-pusht_goalpolicy_g123_seed0 | PENDING | 0:00 |
-| DelftBlue | 902321 | te-pusht_goalpolicy_g3_seed0 | PENDING | 0:00 |
-| DelftBlue | 902319 | te-reacher_goalpolicy_g3_seed0 | RUNNING | 5:17:52 |
-| DelftBlue | 902320 | te-reacher_goalpolicy_g123_seed0 | RUNNING | 5:25:02 |
-| Leonardo | 59523998 | te-cube_policy_mlp_c2k1_noact_seed0-resume | RUNNING | 4:53 |
-
-## Not PASS
-
-- **reacher_goalpolicy_g123_seed0** (DelftBlue, DEVIATE): epoch=7 (expected 9); global_step 51184 != max_steps 63980; last_lr=9.74e-06 (not annealed)
-- **reacher_goalpolicy_g3_seed0** (DelftBlue, DEVIATE): epoch=7 (expected 9); global_step 51184 != max_steps 63980; last_lr=9.74e-06 (not annealed)
-- **cube_policy_mlp_c2k1_noact_seed0** (Leonardo, DEVIATE): epoch=8 (expected 9); global_step 60750 != max_steps 67500; last_lr=2.50e-06 (not annealed)
+(none)
 

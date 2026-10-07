@@ -40,8 +40,7 @@ def upstream_means(budget: str = "50") -> dict[tuple[str, str], float]:
     if UPSTREAM_CSV.is_file():
         with UPSTREAM_CSV.open(newline="") as f:
             for r in csv.DictReader(f):
-                if (r.get("status") == "ok" and r.get("eval_budget") == budget
-                        and r.get("source", "upstream") in ("", "upstream")):
+                if r.get("status") == "ok" and r.get("eval_budget") == budget:
                     env = "cube" if r["env"] == "ogbcube" else r["env"]
                     vals[(env, r["method"])].append(float(r["success_rate"]))
     return {k: statistics.mean(v) for k, v in vals.items()}

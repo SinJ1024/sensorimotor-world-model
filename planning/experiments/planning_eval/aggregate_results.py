@@ -70,26 +70,12 @@ def aggregate(exp_dir: Path) -> list[dict[str, str]]:
                 "run_dir": str(run_dir),
                 "metrics_path": str(metrics_path),
                 "final_training_run": row["final_training_run"],
-                "source": "upstream",
             }
         )
     return out_rows
 
 
-def study_rows(out_path: Path) -> tuple[list[dict[str, str]], list[str]]:
-    """Rows of the existing CSV that this script did not produce (source != upstream),
-    i.e. the policy-regularizer study merged in by scripts/sync_aggregated_results.py,
-    and the extra columns they use. Rewriting the CSV must not drop them."""
-    if not out_path.is_file():
-        return [], []
-    with out_path.open(newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        keep = [r for r in reader if r.get("source", "upstream") not in ("", "upstream")]
-        return keep, list(reader.fieldnames or [])
-
-
 def write_csv(rows: list[dict[str, str]], out_path: Path) -> None:
-    keep, existing_fields = study_rows(out_path)
     fieldnames = [
         "env",
         "env_label",
@@ -106,15 +92,12 @@ def write_csv(rows: list[dict[str, str]], out_path: Path) -> None:
         "run_dir",
         "metrics_path",
         "final_training_run",
-        "source",
     ]
-    fieldnames += [c for c in existing_fields if c not in fieldnames]
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
-        writer.writerows(keep)
 
 
 def main() -> None:

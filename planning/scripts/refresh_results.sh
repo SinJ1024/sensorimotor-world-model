@@ -1,6 +1,5 @@
 #!/bin/bash
-# Refresh planning/RESULTS.md and the study rows of
-# experiments/planning_eval/aggregated_results.csv from every cluster. Run locally.
+# Refresh planning/RESULTS.md and planning/results.csv from every cluster. Run locally.
 #
 # On each cluster: the LOCAL scripts/summarize_runs.py is streamed over ssh and
 # run from /tmp (so every cluster uses the same version, whatever its checkout)
@@ -56,9 +55,9 @@ if ! printf '%s\n' ${ARGS[@]+"${ARGS[@]}"} | grep -q -- '--tsv'; then
     exit 1
 fi
 python3 "$HERE/results_table.py" "${ARGS[@]}" --out "$HERE/../RESULTS.md"
-# Merge the runs into experiments/planning_eval/aggregated_results.csv (source = cluster).
+# Every run of this study, one CSV row each (planning/results.csv).
 TSVS=(); for a in "${ARGS[@]}"; do case "$a" in *.tsv) TSVS+=(--tsv "$a") ;; esac; done
-python3 "$HERE/sync_aggregated_results.py" "${TSVS[@]}"
+python3 "$HERE/export_results_csv.py" "${TSVS[@]}"
 
 # Optionally keep the raw per-cluster TSVs (e.g. for plots or a report page).
 if [ -n "${SMWM_RESULTS_TSV_DIR:-}" ]; then
