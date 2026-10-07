@@ -8,25 +8,24 @@
 # what it can (its queue, or nothing).
 #
 #   planning/scripts/refresh_results.sh
-#   DELFTBLUE_HOST=delftblue14 planning/scripts/refresh_results.sh
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -z "${DELFTBLUE_HOST:-}" ]; then   # first DelftBlue login node that answers
-    for h in delftblue13 delftblue14; do
-        ssh -o BatchMode=yes -o ConnectTimeout=10 "$h" true 2>/dev/null && { DELFTBLUE_HOST=$h; break; }
-    done
-    DELFTBLUE_HOST="${DELFTBLUE_HOST:-delftblue13}"
-fi
+# The `delftblue` ssh alias (login.delftblue.tudelft.nl) has no IdentityFile of its
+# own, so pass the DelftBlue key explicitly; the per-node aliases are not used.
+DELFTBLUE_HOST="${DELFTBLUE_HOST:-delftblue}"
+DELFTBLUE_KEY="${DELFTBLUE_KEY:-$HOME/.ssh/id_ed25519_delftblue}"
+DELFTBLUE_SSH=(-o IdentitiesOnly=yes); [ -f "$DELFTBLUE_KEY" ] && DELFTBLUE_SSH+=(-i "$DELFTBLUE_KEY")
 LEONARDO_HOST="${LEONARDO_HOST:-leonardo}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 ARGS=()
 
-fetch() {  # fetch <label> <host> <summary command> <queue command>
-    local label=$1 host=$2 summary=$3 queue=$4
+fetch() {  # fetch <label> <host> <summary command> <queue command> [extra ssh options...]
+    local label=$1 host=$2 summary=$3 queue=$4; shift 4
+    local opts=(-o ConnectTimeout=15 "$@")
     echo ">> $label ($host)"
-    if ssh -o ConnectTimeout=15 "$host" "$summary" < "$HERE/summarize_runs.py" \
+    if ssh "${opts[@]}" "$host" "$summary" < "$HERE/summarize_runs.py" \
             > "$TMP/$label.tsv" 2> "$TMP/$label.err" \
             && [ "$(wc -l < "$TMP/$label.tsv")" -gt 1 ]; then
         ARGS+=(--tsv "$label=$TMP/$label.tsv")
@@ -34,7 +33,7 @@ fetch() {  # fetch <label> <host> <summary command> <queue command>
     else
         echo "   no summary ($(grep -v 'post-quantum\|store now\|openssh.com/pq' "$TMP/$label.err" | tail -1))"
     fi
-    if ssh -o ConnectTimeout=15 "$host" "$queue" > "$TMP/$label.queue" 2>/dev/null; then
+    if ssh "${opts[@]}" "$host" "$queue" > "$TMP/$label.queue" 2>/dev/null; then
         ARGS+=(--queue "$label=$TMP/$label.queue")
     fi
 }
@@ -44,7 +43,8 @@ fetch() {  # fetch <label> <host> <summary command> <queue command>
 S='S=/tmp/$USER-summarize_runs.py; O=/tmp/$USER-smwm-summary.tsv; rm -f $O; cat > $S;'
 fetch DelftBlue "$DELFTBLUE_HOST" \
     "$S"' cd ~/sensorimotor-world-model && for p in .venv/bin/python ~/conda-envs/biased-dreams-dreamer/bin/python; do [ -x "$p" ] && "$p" -c "import torch, yaml" 2>/dev/null && break; done && "$p" $S --runs-root /scratch/$USER/smwm-runs --eval-root /scratch/$USER/smwm-paper-eval --budget 50 --out $O >/dev/null 2>&1; cat $O' \
-    'squeue -u $USER -h -o "%i	%j	%T	%M"'
+    'squeue -u $USER -h -o "%i	%j	%T	%M"' \
+    "${DELFTBLUE_SSH[@]}"
 
 fetch Leonardo "$LEONARDO_HOST" \
     "$S"' cd $WORK/$USER/sensorimotor-world-model && .venv/bin/python $S --runs-root $WORK/$USER/smwm-runs --eval-root $WORK/$USER/smwm-paper-eval --budget 50 --out $O >/dev/null 2>&1; cat $O' \
