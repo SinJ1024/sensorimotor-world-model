@@ -1,6 +1,6 @@
 # Results
 
-Generated 2026-10-07 13:41 from `scripts/summarize_runs.py` on: DelftBlue, Leonardo. Success = paper CEM protocol (100 tasks, goal 25 primitive steps ahead, budget 50), in %. Regenerate with `scripts/results_table.py` (see its docstring); do not edit by hand.
+Generated 2026-10-07 14:24 from `scripts/summarize_runs.py` on: DelftBlue, Leonardo. Success = paper CEM protocol (100 tasks, goal 25 primitive steps ahead, budget 50), in %. Regenerate with `scripts/results_table.py` (see its docstring); do not edit by hand.
 
 ## Policy-head input ablation (seed 0)
 

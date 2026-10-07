@@ -40,7 +40,9 @@ fetch() {  # fetch <label> <host> <summary command> <queue command> [extra ssh o
 
 # The summary command saves the streamed script, runs it (it writes the TSV with
 # --out) and prints the TSV for transfer.
-S='S=/tmp/$USER-summarize_runs.py; O=/tmp/$USER-smwm-summary.tsv; rm -f $O; cat > $S;'
+# Each run gets its own remote temp dir, so two refreshes at once cannot clobber
+# each other's files.
+S='D=$(mktemp -d /tmp/$USER-smwm-XXXXXX); trap "rm -rf $D" EXIT; S=$D/summarize_runs.py; O=$D/summary.tsv; cat > $S;'
 fetch DelftBlue "$DELFTBLUE_HOST" \
     "$S"' cd ~/sensorimotor-world-model && for p in .venv/bin/python ~/conda-envs/biased-dreams-dreamer/bin/python; do [ -x "$p" ] && "$p" -c "import torch, yaml" 2>/dev/null && break; done && "$p" $S --runs-root /scratch/$USER/smwm-runs --eval-root /scratch/$USER/smwm-paper-eval --budget 50 --out $O >/dev/null 2>&1; cat $O' \
     'squeue -u $USER -h -o "%i	%j	%T	%M"' \
