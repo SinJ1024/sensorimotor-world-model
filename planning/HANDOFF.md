@@ -121,7 +121,10 @@ forward-only values previously quoted here were read off Fig. 5 and are wrong.)
   both with use_action=false. A: seeds 1,2 wherever missing, so every env has 3 seeds of
   both heads. B: lambda = paper x {0.1, 10}, seed 0, both heads (TwoRoom 0.01/1, Push-T
   3/300, Cube 0.1/10, Reacher 0.5/50). Run names <env>_policy_mlp_c2k1_noact[_lamX]_seedS
-  and <env>_policy_mlp_c1k1[_lamX]_seedS. ~68 h per lane.
+  and <env>_policy_mlp_c1k1[_lamX]_seedS. 2026-10-08: B moved to Leonardo before any of it
+  started (DelftBlue jobs cancelled; Leonardo jobs 59709844-59709891, one train+eval job each,
+  `$WORK/$USER/logs/submit_noact_lambda_leonardo.sh`); A stays on DelftBlue. Leonardo budget
+  was 4263/8000 h used on 2026-10-08 (mostly other projects); B costs ~880 h.
   NOTE: the DelftBlue checkout's main has a local commit 2cf7c14 (train_staged.sbatch)
   and diverges from origin/main; do not pull there without merging.
 * Evals pending: tworoom goal_policy G=2/3/{1,2,3}, tworoom/reacher/pusht inverse+policy,
