@@ -111,24 +111,30 @@ def describe_method(cfg):
     return ("+".join(parts) if parts else "forward_only"), active
 
 
-def find_eval(eval_root, env, run_name, budget, paths=None):
-    """Newest metrics.json per (seed, budget) for this run -> {seed: success_rate}.
+def find_eval(eval_root, env, run_name, budget, paths=None, reruns=None):
+    """First metrics.json per (seed, budget) for this run -> {seed: success_rate}.
 
     When a dict is passed as ``paths`` it is filled with {seed: metrics.json path}.
     """
     pattern = os.path.join(eval_root, EVAL_SLUG[env], run_name, "seed_*", f"budget_{budget}", "job_*", "results", "seed_*", "metrics.json")
-    best = {}
+    best, later = {}, {}
     for path in glob.glob(pattern):
         m = re.search(r"/seed_(\d+)/budget_\d+/job_(\d+)/", path.replace("\\", "/"))
         if not m:
             continue
         seed, job = int(m.group(1)), int(m.group(2))
-        if seed not in best or job > best[seed][0]:
+        # The FIRST evaluation of a seed is the one recorded: it is the training job's
+        # own eval, on the same hardware as every other run. Later ones (cross-checks
+        # on another GPU type) are listed in other_evals, not substituted.
+        if seed not in best or job < best[seed][0]:
             best[seed] = (job, path)
+        later.setdefault(seed, []).append((job, path))
     out = {}
+    reruns = reruns if reruns is not None else {}
     for seed, (job, path) in best.items():
         if paths is not None:
             paths[seed] = path
+            reruns[seed] = [(j, p) for j, p in sorted(later.get(seed, [])) if j != job]
         try:
             out[seed] = float(json.load(open(path))["metrics"]["success_rate"])
         except (KeyError, ValueError, json.JSONDecodeError):
@@ -224,8 +230,8 @@ def summarize(run, eval_root, budget):
     # training seed; an evaluation filed under another seed used the wrong CEM
     # seed (e.g. reacher_inverse_lambda_1_seed1 was once run as seed_0) and is
     # only listed in other_evals.
-    ev_paths = {}
-    ev = find_eval(eval_root, env, run.name, budget, ev_paths)
+    ev_paths, ev_reruns = {}, {}
+    ev = find_eval(eval_root, env, run.name, budget, ev_paths, ev_reruns)
     own = r["seed"]
     if own is None:
         m = re.search(r"_seed(\d+)$", run.name)
@@ -238,6 +244,12 @@ def summarize(run, eval_root, budget):
         r["success"] = "/".join(f"{ev[s]:g}" for s in sorted(ev)) if ev else ""
         others = {}
     r["other_evals"] = ", ".join(f"seed_{s}={v:g}" for s, v in sorted(others.items()))
+    for j, path in ev_reruns.get(own, []):
+        try:
+            v = float(json.load(open(path))["metrics"]["success_rate"])
+        except (KeyError, ValueError, json.JSONDecodeError):
+            continue
+        r["other_evals"] = (r["other_evals"] + ", " if r["other_evals"] else "") + f"rerun_job_{j}={v:g}"
     r["n_eval"] = len(ev)
 
     r["verdict"] = "PASS" if not devs else "DEVIATE"

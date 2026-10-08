@@ -16,7 +16,7 @@
   cannot copy a<sub>t</sub> into a<sub>t+1</sub>, so the encoder has to carry the state that predicts the
   next action. The signal still comes from the behaviour policy: Reacher stays at 10.</li>
   <li><b>The earlier state z<sub>t</sub> matters.</b> A head that sees only z<sub>t+1</sub> is lower in
-  every environment where the policy works: TwoRoom 88, Push-T 57, Cube 66.</li>
+  every environment where the policy works: TwoRoom 85.7 ± 14.6, Push-T 59.3 ± 2.5, Cube 68.7 ± 3.1 (3 seeds each) against 100, 65.3 and 78.0 with z<sub>t</sub> added; on Reacher both are at random level (12.7 vs 11.0).</li>
   <li><b>Neither architecture nor λ closes the gap to inverse.</b> MLP, Mamba and Transformer heads,
   context up to 16 latents, multi-step targets, and λ over three orders of magnitude all stay below
   inverse; long contexts hurt on TwoRoom (35–50 at L = 16).</li>

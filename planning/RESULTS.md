@@ -1,6 +1,6 @@
 # Results
 
-Generated 2026-10-07 14:24 from `scripts/summarize_runs.py` on: DelftBlue, Leonardo. Success = paper CEM protocol (100 tasks, goal 25 primitive steps ahead, budget 50), in %. Regenerate with `scripts/results_table.py` (see its docstring); do not edit by hand.
+Generated 2026-10-08 23:24 from `scripts/summarize_runs.py` on: DelftBlue, Leonardo. Success = paper CEM protocol (100 tasks, goal 25 primitive steps ahead, budget 50), in %. Regenerate with `scripts/results_table.py` (see its docstring); do not edit by hand.
 
 ## Policy-head input ablation (seed 0)
 
@@ -19,17 +19,23 @@ Run families with at least two evaluated seeds; mean ± sample standard deviatio
 
 | env | run family | cluster | n | success | per seed |
 |---|---|---|---|---|---|
+| TwoRoom | tworoom_policy_mlp_c1k1 | DelftBlue | 3 | 85.7 ± 14.6 | s0: 88, s1: 70, s2: 99 |
 | TwoRoom | tworoom_policy_mlp_c2k1 | DelftBlue | 2 | 88.0 ± 1.4 | s0: 89, s2: 87 |
 | TwoRoom | tworoom_policy_mlp_c2k1_lam0p005 | DelftBlue | 3 | 52.3 ± 8.0 | s0: 44, s1: 53, s2: 60 |
 | TwoRoom | tworoom_policy_mlp_c2k1_lam0p01 | DelftBlue | 3 | 66.0 ± 25.2 | s0: 79, s1: 37, s2: 82 |
 | TwoRoom | tworoom_policy_mlp_c2k1_lam0p02 | DelftBlue | 3 | 73.0 ± 21.2 | s0: 49, s1: 81, s2: 89 |
 | TwoRoom | tworoom_policy_mlp_c2k1_lam0p03 | DelftBlue | 3 | 68.3 ± 26.5 | s0: 94, s1: 41, s2: 70 |
 | TwoRoom | tworoom_policy_mlp_c2k1_lam0p05 | DelftBlue | 3 | 59.3 ± 18.6 | s0: 68, s1: 38, s2: 72 |
+| TwoRoom | tworoom_policy_mlp_c2k1_noact | DelftBlue | 3 | 100.0 ± 0.0 | s0: 100, s1: 100, s2: 100 |
 | Reacher | reacher_inverse_lambda_1 | DelftBlue | 2 | 71.0 ± 4.2 | s0: 68, s1: 74 |
+| Reacher | reacher_policy_mlp_c1k1 | DelftBlue | 3 | 11.0 ± 3.0 | s0: 14, s1: 11, s2: 8 |
+| Reacher | reacher_policy_mlp_c2k1_noact | DelftBlue | 3 | 12.7 ± 2.5 | s0: 10, s1: 13, s2: 15 |
+| Push-T | pusht_policy_mlp_c1k1 | DelftBlue | 3 | 59.3 ± 2.5 | s0: 57, s1: 59, s2: 62 |
 | Push-T | pusht_policy_mlp_c2k1_lam10p0 | DelftBlue | 2 | 39.5 ± 7.8 | s0: 45, s1: 34 |
 | Push-T | pusht_policy_mlp_c2k1_lam20p0 | DelftBlue | 2 | 39.5 ± 0.7 | s0: 40, s1: 39 |
 | Push-T | pusht_policy_mlp_c2k1_lam5p0 | DelftBlue | 2 | 35.5 ± 0.7 | s0: 36, s1: 35 |
 | Push-T | pusht_policy_mlp_c2k1_noact | DelftBlue | 3 | 65.3 ± 3.2 | s0: 69, s1: 63, s2: 64 |
+| OGBench-Cube | cube_policy_mlp_c1k1 | DelftBlue | 3 | 68.7 ± 3.1 | s0: 66, s1: 72, s2: 68 |
 | OGBench-Cube | cube_policy_mlp_c2k1_noact | DelftBlue | 3 | 78.0 ± 4.4 | s0: 80, s1: 81, s2: 73 |
 
 ## All runs
@@ -50,6 +56,8 @@ Run families with at least two evaluated seeds; mean ± sample standard deviatio
 | DelftBlue | tworoom_policy_mamba_c2k1_seed0 | policy(mamba,c2,k1) | 0.1 | 29200 | 37.7 | 3.37e-05 |  | 0.951 |  | 79 | PASS |  |
 | DelftBlue | tworoom_policy_mamba_c4k1_seed0 | policy(mamba,c4,k1) | 0.1 | 25690 | 55.6 | 5.1e-05 |  | 0.931 |  | 79 | PASS |  |
 | DelftBlue | tworoom_policy_mlp_c1k1_seed0 | policy(mlp,c1,k1) | 0.1 | 29200 | 21.5 | 3.24e-05 |  | 0.971 |  | 88 | PASS |  |
+| DelftBlue | tworoom_policy_mlp_c1k1_seed1 | policy(mlp,c1,k1) | 0.1 | 29200 | 28.7 | 3.93e-05 |  | 0.971 |  | 70 | PASS | rerun_job_930925=68 |
+| DelftBlue | tworoom_policy_mlp_c1k1_seed2 | policy(mlp,c1,k1) | 0.1 | 29200 | 20 | 2.74e-05 |  | 0.971 |  | 99 | PASS | rerun_job_930926=98 |
 | DelftBlue | tworoom_policy_mlp_c16k1_seed0 | policy(mlp,c16,k1) | 0.1 | 22010 | 81.4 | 0.000154 |  | 0.916 |  | 50 | PASS |  |
 | DelftBlue | tworoom_policy_mlp_c16k2_seed0 | policy(mlp,c16,k2) | 0.1 | 16410 | 68.8 | 0.000104 |  | 0.926 |  | 45 | PASS |  |
 | DelftBlue | tworoom_policy_mlp_c16k3_seed0 | policy(mlp,c16,k3) | 0.1 | 11160 | 33.5 | 8.38e-05 |  | 0.931 |  | 39 | PASS |  |
@@ -74,6 +82,8 @@ Run families with at least two evaluated seeds; mean ± sample standard deviatio
 | DelftBlue | tworoom_policy_mlp_c2k1_lam0p05_seed2 | policy(mlp,c2,k1) | 0.05 | 29200 | 23.8 | 3e-05 |  | 0.952 |  | 72 | PASS |  |
 | DelftBlue | tworoom_policy_mlp_c2k1_lam0p1_seed1 | policy(mlp,c2,k1) | 0.1 | 29200 | 25.6 | 5.03e-05 |  | 0.952 |  | 95 | PASS |  |
 | DelftBlue | tworoom_policy_mlp_c2k1_noact_seed0 | policy(mlp,c2,k1) | 0.1 | 29200 | 13.2 | 5.53e-05 |  | 0.952 |  | 100 | PASS |  |
+| DelftBlue | tworoom_policy_mlp_c2k1_noact_seed1 | policy(mlp,c2,k1) | 0.1 | 29200 | 13.3 | 7.49e-05 |  | 0.953 |  | 100 | PASS | rerun_job_930921=100 |
+| DelftBlue | tworoom_policy_mlp_c2k1_noact_seed2 | policy(mlp,c2,k1) | 0.1 | 29200 | 11.3 | 5.23e-05 |  | 0.952 |  | 100 | PASS | rerun_job_930922=100 |
 | DelftBlue | tworoom_policy_mlp_c2k1_seed0 | policy(mlp,c2,k1) | 0.1 | 29200 | 27.2 | 4.79e-05 |  | 0.952 |  | 89 | PASS |  |
 | DelftBlue | tworoom_policy_mlp_c2k1_seed2 | policy(mlp,c2,k1) | 0.1 | 29200 | 28.4 | 4.9e-05 |  | 0.952 |  | 87 | PASS |  |
 | DelftBlue | tworoom_policy_mlp_c4k1_seed0 | policy(mlp,c4,k1) | 0.1 | 25690 | 35 | 6.22e-05 |  | 0.934 |  | 82 | PASS |  |
@@ -95,10 +105,14 @@ Run families with at least two evaluated seeds; mean ± sample standard deviatio
 | DelftBlue | reacher_invpolicy_mlp_c2k1_seed0 | inverse+policy(mlp,c2,k1) | 5/5 | 67500 | 18 | 0.0013 | 0.832 | 0.999 |  | 72 | PASS |  |
 | DelftBlue | reacher_policy_mamba_c4k1_seed0 | policy(mamba,c4,k1) | 5 | 63980 | 124 | 0.000672 |  | 0.998 |  | 10 | PASS |  |
 | DelftBlue | reacher_policy_mlp_c1k1_seed0 | policy(mlp,c1,k1) | 5 | 67500 | 160 | 5.56e-06 |  | 1 |  | 14 | PASS |  |
+| DelftBlue | reacher_policy_mlp_c1k1_seed1 | policy(mlp,c1,k1) | 5 | 67500 | 151 | 5.11e-06 |  | 1 |  | 11 | PASS | rerun_job_930930=15 |
+| DelftBlue | reacher_policy_mlp_c1k1_seed2 | policy(mlp,c1,k1) | 5 | 67500 | 151 | 4.3e-06 |  | 1 |  | 8 | PASS | rerun_job_930931=12 |
 | DelftBlue | reacher_policy_mlp_c2k1_lam0p5_seed0 | policy(mlp,c2,k1) | 0.5 | 67500 | 169 | 3.97e-06 |  | 0.999 |  | 16 | PASS |  |
 | DelftBlue | reacher_policy_mlp_c2k1_lam500p0_seed0 | policy(mlp,c2,k1) | 500 | 67500 | 141 | 0.019 |  | 0.999 |  | 8 | PASS |  |
 | DelftBlue | reacher_policy_mlp_c2k1_lam50p0_seed0 | policy(mlp,c2,k1) | 50 | 67500 | 145 | 0.00448 |  | 0.999 |  | 16 | PASS |  |
 | DelftBlue | reacher_policy_mlp_c2k1_noact_seed0 | policy(mlp,c2,k1) | 5 | 67500 | 154 | 3.29e-06 |  | 0.999 |  | 10 | PASS |  |
+| DelftBlue | reacher_policy_mlp_c2k1_noact_seed1 | policy(mlp,c2,k1) | 5 | 67500 | 156 | 4.04e-06 |  | 0.999 |  | 13 | PASS | rerun_job_930923=13 |
+| DelftBlue | reacher_policy_mlp_c2k1_noact_seed2 | policy(mlp,c2,k1) | 5 | 67500 | 166 | 2.5e-06 |  | 0.999 |  | 15 | PASS | rerun_job_930924=15 |
 | DelftBlue | reacher_policy_mlp_c2k1_seed0 | policy(mlp,c2,k1) | 5 | 67500 | 149 | 8.48e-06 |  | 0.999 |  | 11 | PASS |  |
 | DelftBlue | reacher_policy_transformer_c4k1_seed0 | policy(transformer,c4,k1) | 5 | 63980 | 163 | 1.01e-05 |  | 0.999 |  | 10 | PASS |  |
 
@@ -113,6 +127,8 @@ Run families with at least two evaluated seeds; mean ± sample standard deviatio
 | DelftBlue | pusht_invpolicy_mlp_c2k1_seed0 | inverse+policy(mlp,c2,k1) | 30/30 | 76210 | 81.8 | 0.0492 | 0.0927 | 0.144 |  | 82 | PASS |  |
 | DelftBlue | pusht_policy_mamba_c4k1_seed0 | policy(mamba,c4,k1) | 30 | 69640 | 114 | 0.0237 |  | 0.0981 |  | 17 | PASS |  |
 | DelftBlue | pusht_policy_mlp_c1k1_seed0 | policy(mlp,c1,k1) | 30 | 76210 | 110 | 0.0639 |  | 0.206 |  | 57 | PASS |  |
+| DelftBlue | pusht_policy_mlp_c1k1_seed1 | policy(mlp,c1,k1) | 30 | 76210 | 110 | 0.0638 |  | 0.203 |  | 59 | PASS | rerun_job_930927=58 |
+| DelftBlue | pusht_policy_mlp_c1k1_seed2 | policy(mlp,c1,k1) | 30 | 76210 | 109 | 0.0634 |  | 0.202 |  | 62 | PASS | rerun_job_930928=61 |
 | DelftBlue | pusht_policy_mlp_c2k1_lam100p0_seed0 | policy(mlp,c2,k1) | 100 | 76210 | 119 | 0.0639 |  | 0.136 |  | 43 | PASS |  |
 | DelftBlue | pusht_policy_mlp_c2k1_lam10p0_seed0 | policy(mlp,c2,k1) | 10 | 76210 | 113 | 0.0251 |  | 0.136 |  | 45 | PASS |  |
 | DelftBlue | pusht_policy_mlp_c2k1_lam10p0_seed1 | policy(mlp,c2,k1) | 10 | 76210 | 118 | 0.026 |  | 0.137 |  | 34 | PASS |  |
@@ -135,6 +151,8 @@ Run families with at least two evaluated seeds; mean ± sample standard deviatio
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | DelftBlue | cube_inverse_lambda_1_seed0 | inverse | 1 | 67500 | 39.4 | 0.00166 | 0.0863 |  |  | 81 | PASS |  |
 | DelftBlue | cube_policy_mlp_c1k1_seed0 | policy(mlp,c1,k1) | 1 | 67500 | 77.4 | 0.0024 |  | 0.369 |  | 66 | PASS |  |
+| DelftBlue | cube_policy_mlp_c1k1_seed1 | policy(mlp,c1,k1) | 1 | 67500 | 71.8 | 0.00268 |  | 0.374 |  | 72 | PASS | rerun_job_930929=75 |
+| DelftBlue | cube_policy_mlp_c1k1_seed2 | policy(mlp,c1,k1) | 1 | 67500 | 72.5 | 0.00266 |  | 0.376 |  | 68 | PASS |  |
 | DelftBlue | cube_policy_mlp_c2k1_noact_seed0 | policy(mlp,c2,k1) | 1 | 67500 | 39.4 | 0.00329 |  | 0.269 |  | 80 | PASS |  |
 | Leonardo | cube_policy_mlp_c2k1_noact_seed0 | policy(mlp,c2,k1) | 1 | 67500 | 41.7 | 0.00319 |  | 0.268 |  | 79 | PASS |  |
 | DelftBlue | cube_policy_mlp_c2k1_noact_seed1 | policy(mlp,c2,k1) | 1 | 67500 | 40.1 | 0.00325 |  | 0.268 |  | 81 | PASS |  |
