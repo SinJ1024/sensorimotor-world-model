@@ -51,7 +51,7 @@ Cross-environment:
 | env | data (paper App. B) | a_{t+1} predictability (measured) | inverse paper / ours | policy mlp c2k1 | policy tf c4k1 | policy mamba c4k1 |
 |---|---|---|---|---|---|---|
 | TwoRoom | noisy scripted, goal-directed | ~5% | ~95 / 100 | 92 (2 seeds) | 45 | 79 |
-| Reacher | SAC-generated | 0.0% | ~85 / 68 | 11 | 10 | 10 |
+| Reacher | paper: SAC; **data: i.i.d. uniform [-1,1]** (see below) | 0.0% | ~85 / 68 | 11 | 10 | 10 |
 | Push-T | DINO-WM expert | 46% (linear, from a_t alone) | ~75 / 89 | 37 | 25 | 17 |
 | Cube | OGBench scripted | – | 84 / (eval pending) | (pending) | | |
 
@@ -59,6 +59,33 @@ Upstream baselines (experiments/planning_eval/aggregated_results.csv, same proto
 inverse / SIGReg / forward-only / random): TwoRoom 100 / 92.6 / 34.6 / 30.0, Reacher 71.4 / 67.8 /
 9.8 / 13.6, Push-T 84.4 / 88.8 / 2.6 / 2.8, Cube 83.0 / 60.0 / 46.8 / 43.0. (The ~60/~40/~35
 forward-only values previously quoted here were read off Fig. 5 and are wrong.)
+
+## 3b. What each dataset gives each regularizer (2026-10-09, scripts/analyze_dataset_dynamics.py)
+
+Privileged physical state, frameskip 5 as in training, held-out episodes, MLP R^2
+(analysis/dataset_dynamics.json). "mean" targets use the mean of the 5-step action block.
+
+| env | dynamics / actuation | planning target | data policy (measured) | inverse a_t <- (s_t,s_t+1) | policy a_t+1 <- (s_t,s_t+1) | <- s_t+1 only | a_t+1 <- a_t (shortcut) |
+|---|---|---|---|---|---|---|---|
+| TwoRoom | 1st-order kinematics, agent fully actuated | agent position | noisy bang-bang heuristic (64% saturated, lag-1 0.06) | 0.96 | 0.33 | 0.33 | 0.07 |
+| Reacher | 2nd-order torque, arm fully actuated | arm qpos | i.i.d. uniform (flat histogram, std 0.577, lag-1 0.000, R^2 0 from full state in every fifth of the 10 000 episodes) | 0.78 (0.99 with qvel) | 0.00 | 0.00 | 0.00 |
+| Push-T | agent PD-controlled; T-block moved only by contact | T-block pose | expert, smooth (lag-1 0.87) | 1.00 | 0.74 | 0.57 | 0.27 (0.66 per primitive) |
+| Cube | arm IK-controlled; cube moved only by grasp/contact | cube position | scripted expert, smooth (lag-1 0.88) | 0.99 | 0.80 | 0.66 | 0.62 |
+
+Controllability (R^2 of the state change from s_t -> from (s_t, a_t)): TwoRoom agent
+0.12 -> 0.97, Reacher arm 0.14 -> 1.00, Push-T agent 0.81 -> 1.00 but T-block 0.73 -> 0.78,
+Cube arm 0.81 -> 0.94, cube 0.75 -> 0.93. Push-T next expert action from agent alone 0.56,
+agent + block 0.71, block alone 0.20; inverse from agent alone 1.00.
+
+Reading: the inverse signal exists in every environment (every task has a well-actuated
+body), so inverse works everywhere. The policy signal is a property of the dataset, not
+of the physics: Reacher's published LeWM dataset (quentinll/lewm-reacher) has i.i.d.
+uniform actions although the LeWM paper (App. E) says it was collected with SAC, so the
+policy head has exactly zero signal there while inverse reaches 71 on the same physics.
+Smooth expert actions (Push-T, Cube) give the +a_t head a shortcut a_t -> a_t+1, which
+explains why removing a_t helps most there. Decisive next test: swap the behaviour policy
+within one environment (Reacher with the stable_worldmodel SAC ExpertPolicy; TwoRoom with
+uniform random actions).
 
 ## 4. Mechanism (the thesis argument)
 
