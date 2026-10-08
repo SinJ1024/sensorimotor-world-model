@@ -125,6 +125,8 @@ forward-only values previously quoted here were read off Fig. 5 and are wrong.)
   started (DelftBlue jobs cancelled; Leonardo jobs 59709844-59709891, one train+eval job each,
   `$WORK/$USER/logs/submit_noact_lambda_leonardo.sh`); A stays on DelftBlue. Leonardo budget
   was 4263/8000 h used on 2026-10-08 (mostly other projects); B costs ~880 h.
+  2026-10-08 17:15: B cancelled on Leonardo before any job started (user: skip the sweep
+  for now, meeting 2026-10-09). Resubmit with the same script when wanted.
   NOTE: the DelftBlue checkout's main has a local commit 2cf7c14 (train_staged.sbatch)
   and diverges from origin/main; do not pull there without merging.
 * Evals pending: tworoom goal_policy G=2/3/{1,2,3}, tworoom/reacher/pusht inverse+policy,
