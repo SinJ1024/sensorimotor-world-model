@@ -124,8 +124,8 @@ def find_eval(eval_root, env, run_name, budget, paths=None, reruns=None):
             continue
         seed, job = int(m.group(1)), int(m.group(2))
         # The FIRST evaluation of a seed is the one recorded: it is the training job's
-        # own eval, on the same hardware as every other run. Later ones (cross-checks
-        # on another GPU type) are listed in other_evals, not substituted.
+        # own eval. Later ones (cross-checks, possibly on another GPU type: evals here
+        # ran on both V100 and A100) are listed in other_evals, not substituted.
         if seed not in best or job < best[seed][0]:
             best[seed] = (job, path)
         later.setdefault(seed, []).append((job, path))
