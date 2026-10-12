@@ -140,7 +140,23 @@ def forward_step(self, batch, stage, cfg):
         z_window = emb[:, :L]                                   # (B, L, D)
         a_window = batch["action"][:, : L - 1] if policy_use_action else None
         a_future = batch["action"][:, L - 1 : L - 1 + k]        # (B, k, A)
-        pred_next = self.model.predict_next_action(z_window, a_window)  # (B, k, A)
+        # Optional hindsight goal z_{t+1+G}: clip index L-1+G; G fixed, or drawn per
+        # sample from [goal_offset, goal_offset_max].
+        g_lo = int(cfg.loss.get("policy", {}).get("goal_offset", 0) or 0)
+        g_hi = int(cfg.loss.get("policy", {}).get("goal_offset_max") or g_lo)
+        z_goal = None
+        if g_lo:
+            if L - 1 + g_hi > T - 1:
+                raise ValueError(
+                    f"Batch sequence length {T} is too short for a policy goal offset up to "
+                    f"{g_hi} with context={L}; need >= {L + g_hi}."
+                )
+            if g_hi > g_lo:
+                G = torch.randint(g_lo, g_hi + 1, (emb.size(0),), device=emb.device)
+                z_goal = emb[torch.arange(emb.size(0), device=emb.device), L - 1 + G]
+            else:
+                z_goal = emb[:, L - 1 + g_lo]
+        pred_next = self.model.predict_next_action(z_window, a_window, z_goal)  # (B, k, A)
         output["policy_loss"] = (pred_next - a_future).pow(2).mean()
         output["loss"] = output["loss"] + lambd_policy * output["policy_loss"]
 
@@ -196,7 +212,12 @@ def run(cfg):
     # The policy regularizer needs context + num_future - 1 steps in each clip.
     policy_cfg = cfg.loss.get("policy", {})
     if policy_cfg.get("weight", 0.0):
-        policy_steps = int(policy_cfg.get("context", 2)) + int(policy_cfg.get("num_future", 1)) - 1
+        L_ctx = int(policy_cfg.get("context", 2))
+        policy_steps = L_ctx + int(policy_cfg.get("num_future", 1)) - 1
+        # A hindsight goal z_{t+1+G} sits at clip index L-1+G, so the clip needs L+G frames.
+        g_max = int(policy_cfg.get("goal_offset_max") or policy_cfg.get("goal_offset", 0) or 0)
+        if g_max:
+            policy_steps = max(policy_steps, L_ctx + g_max)
     else:
         policy_steps = 0
     # The goal-conditioned policy needs max(goal_offsets) + 1 steps in each clip.
@@ -280,6 +301,8 @@ def run(cfg):
             context=int(policy_cfg.get("context", 2)),
             arch=policy_cfg.get("arch", "mlp"),
             depth=int(policy_cfg.get("depth", 2)),
+            input=policy_cfg.get("input", "endpoints"),
+            use_goal=bool(policy_cfg.get("goal_offset", 0)),
         )
 
     goal_policy = None

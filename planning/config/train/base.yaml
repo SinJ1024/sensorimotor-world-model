@@ -89,6 +89,9 @@ loss:
     context: 2           # latents fed to the head (2 = z_t,z_{t+1}; larger = longer window)
     arch: mlp            # mlp | resmlp | gru | transformer | mamba
     depth: 2             # layers for resmlp/gru/transformer/mamba
+    input: endpoints     # endpoints: the window latents | delta: their differences z_{i+1}-z_i (Delta-JEPA style; mlp/resmlp)
+    goal_offset: 0       # G > 0: also condition on the hindsight goal z_{t+1+G} (delta input: z_g - z_{t+1}); G=1 == inverse on (z_{t+1}, z_{t+2})
+    goal_offset_max: null  # if set, draw G per sample uniformly from [goal_offset, goal_offset_max]
   # Goal-conditioned policy regularizer: a_t = pi(z_t, z_{t+G}) (hindsight goal).
   # Its signal comes from the dynamics, not the behaviour policy; G=1 coincides
   # with the inverse-dynamics head. Independent of inverse/policy, so it can be

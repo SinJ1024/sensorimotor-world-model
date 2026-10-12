@@ -101,11 +101,11 @@ class JEPA(nn.Module):
         )
         return self.goal_policy[key](z_t, z_goal)
 
-    def predict_next_action(self, z_window, a_window=None):
-        """Predict the next actions from a window of latents (+ past actions)
-        via the policy-model regularizer."""
+    def predict_next_action(self, z_window, a_window=None, z_goal=None):
+        """Predict the next actions from a window of latents (+ past actions,
+        + a hindsight goal latent) via the policy-model regularizer."""
         assert self.policy_model is not None, "No policy model configured"
-        return self.policy_model(z_window, a_window)
+        return self.policy_model(z_window, a_window, z_goal)
 
     def rollout(self, info, action_sequence):
         """Rollout the model given an initial info dict and action sequence."""

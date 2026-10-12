@@ -337,21 +337,43 @@ class PolicyModel(nn.Module):
     data's behaviour policy is state-conditioned. A stronger head predicts better
     but can also extract the answer from a poor z (less encoder pressure), so
     always track both policy_loss (down) AND effective_rank (up).
+
+    input = endpoints | delta (mlp/resmlp only for delta and goal)
+      endpoints : the window latents themselves (z_{t-L+2}, ..., z_{t+1})
+      delta     : only their displacements z_{i+1} - z_i (L-1 of them), as in
+                  Delta-JEPA's latent-difference action decoder
+    use_goal: also condition on a hindsight goal latent z_g = z_{t+1+G} (given to
+      forward); with input=delta the head sees the goal displacement z_g - z_{t+1}.
+      Any goal after t+1 is affected by a_{t+1}, so small G turns the head back
+      into an inverse model of a_{t+1} (G=1 is exactly inverse dynamics on
+      z_{t+1}, z_{t+2}).
     """
 
     def __init__(self, embed_dim, action_dim, hidden_dim=256, use_action=True,
-                 num_future=1, context=2, arch="mlp", depth=2, heads=4):
+                 num_future=1, context=2, arch="mlp", depth=2, heads=4,
+                 input="endpoints", use_goal=False):
         super().__init__()
         self.use_action = bool(use_action)
         self.num_future = int(num_future)
         self.action_dim = int(action_dim)
         self.context = int(context)
         self.arch = str(arch).lower()
+        self.input = str(input).lower()
+        self.use_goal = bool(use_goal)
+        if self.input not in ("endpoints", "delta"):
+            raise ValueError(f"Unknown policy input: {self.input!r} (endpoints | delta)")
+        if (self.input == "delta" or self.use_goal) and self.arch not in ("mlp", "resmlp"):
+            raise ValueError("policy input=delta and goal conditioning are implemented for "
+                             f"arch=mlp/resmlp only, got arch={self.arch!r}")
+        if self.input == "delta" and self.context < 2 and not self.use_goal:
+            raise ValueError("policy input=delta needs context >= 2 (or a goal): "
+                             "a single latent has no displacement")
         out_dim = self.num_future * action_dim
         act_in = action_dim if self.use_action else 0
 
         if self.arch in ("mlp", "resmlp"):
-            flat_in = self.context * embed_dim + (self.context - 1) * act_in
+            n_lat = self.context - 1 if self.input == "delta" else self.context
+            flat_in = (n_lat + int(self.use_goal)) * embed_dim + (self.context - 1) * act_in
             self.proj = nn.Linear(flat_in, hidden_dim)
             if self.arch == "mlp":
                 self.body = nn.Sequential(
@@ -375,15 +397,25 @@ class PolicyModel(nn.Module):
         else:
             raise ValueError(f"Unknown policy arch: {self.arch!r}")
 
-    def forward(self, z_window, a_window=None):
+    def forward(self, z_window, a_window=None, z_goal=None):
         """
         z_window: (B, L, D) — L=context latents ending at z_{t+1}
         a_window: (B, L-1, A) — actions within the window (required iff use_action)
+        z_goal:   (B, D) — hindsight goal latent (required iff use_goal)
         Returns: (B, num_future, action_dim)
         """
         B, L = z_window.shape[:2]
+        if self.use_goal and z_goal is None:
+            raise ValueError("this policy head is goal-conditioned but got no z_goal")
         if self.arch in ("mlp", "resmlp"):
-            parts = [z_window.reshape(B, -1)]
+            if self.input == "delta":
+                parts = [(z_window[:, 1:] - z_window[:, :-1]).reshape(B, -1)]
+                if self.use_goal:
+                    parts.append(z_goal - z_window[:, -1])
+            else:
+                parts = [z_window.reshape(B, -1)]
+                if self.use_goal:
+                    parts.append(z_goal)
             if self.use_action:
                 parts.append(a_window.reshape(B, -1))
             h = self.proj(torch.cat(parts, dim=-1))
