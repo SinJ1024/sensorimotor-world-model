@@ -105,7 +105,9 @@ def describe_method(cfg):
         if pol.get("use_action", True) is False:
             extra.append("noact")
         g_lo, g_hi = pol.get("goal_offset", 0) or 0, pol.get("goal_offset_max")
-        if g_lo:
+        if str(pol.get("goal_source", "offset")) == "final":
+            extra.append("Gfinal")
+        elif g_lo:
             extra.append(f"G{g_lo}-{g_hi}" if g_hi and g_hi != g_lo else f"G{g_lo}")
         tail = "," + ",".join(extra) if extra else ""
         parts.append(f"policy({pol.get('arch', 'mlp')},c{pol.get('context', 2)},k{pol.get('num_future', 1)}{tail})")

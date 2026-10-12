@@ -57,6 +57,29 @@ def configure_external_callbacks(enabled: bool) -> None:
     callback_connector._load_external_callbacks = _no_external_callbacks
 
 
+class FinalGoalHDF5Dataset(swm.data.HDF5Dataset):
+    """HDF5Dataset whose samples also carry the last frame of their episode as
+    ``goal_pixels`` (same transform as the clip), for a policy head conditioned
+    on the state the episode ends in (loss.policy.goal_source=final)."""
+
+    def __getitem__(self, idx):
+        steps = super().__getitem__(idx)
+        ep_idx, _ = self.clip_indices[idx]
+        n = int(self.lengths[ep_idx])
+        steps["goal_pixels"] = self._load_slice(ep_idx, n - 1, n)["pixels"][0]
+        return steps
+
+
+def policy_goal_source(cfg) -> str:
+    """'final' (episode's last frame), 'offset' (z_{t+1+G}) or 'none'."""
+    pol = cfg.loss.get("policy", {})
+    if not pol.get("weight", 0.0):
+        return "none"
+    if str(pol.get("goal_source", "offset")) == "final":
+        return "final"
+    return "offset" if int(pol.get("goal_offset", 0) or 0) else "none"
+
+
 class SchedulerConfigurationGuard(pl.Callback):
     """Fail before training when the step-based LR schedule has wrong units."""
 
@@ -99,7 +122,17 @@ def forward_step(self, batch, stage, cfg):
     required_steps = history_size + 1
 
     batch["action"] = torch.nan_to_num(batch["action"], 0.0)
+    # The episode's final frame (goal_source=final) is encoded in the same pass as
+    # the clip, so the projector's BatchNorm sees one batch, then split off.
+    goal_final = policy_goal_source(cfg) == "final"
+    if goal_final:
+        gp = batch["goal_pixels"]
+        batch["pixels"] = torch.cat([batch["pixels"], gp.unsqueeze(1) if gp.ndim == 4 else gp], dim=1)
     output = self.model.encode(batch)
+    z_goal_final = None
+    if goal_final:
+        z_goal_final = output["emb"][:, -1]
+        output["emb"] = output["emb"][:, :-1]
 
     emb = output["emb"]
     act_emb = output["act_emb"]
@@ -144,8 +177,8 @@ def forward_step(self, batch, stage, cfg):
         # sample from [goal_offset, goal_offset_max].
         g_lo = int(cfg.loss.get("policy", {}).get("goal_offset", 0) or 0)
         g_hi = int(cfg.loss.get("policy", {}).get("goal_offset_max") or g_lo)
-        z_goal = None
-        if g_lo:
+        z_goal = z_goal_final
+        if z_goal is None and g_lo:
             if L - 1 + g_hi > T - 1:
                 raise ValueError(
                     f"Batch sequence length {T} is too short for a policy goal offset up to "
@@ -216,7 +249,7 @@ def run(cfg):
         policy_steps = L_ctx + int(policy_cfg.get("num_future", 1)) - 1
         # A hindsight goal z_{t+1+G} sits at clip index L-1+G, so the clip needs L+G frames.
         g_max = int(policy_cfg.get("goal_offset_max") or policy_cfg.get("goal_offset", 0) or 0)
-        if g_max:
+        if g_max and str(policy_cfg.get("goal_source", "offset")) != "final":
             policy_steps = max(policy_steps, L_ctx + g_max)
     else:
         policy_steps = 0
@@ -234,7 +267,8 @@ def run(cfg):
         if current_steps < required_steps:
             cfg.data.dataset.num_steps = required_steps
 
-    train_set = swm.data.HDF5Dataset(**cfg.data.dataset, transform=None)
+    dataset_cls = FinalGoalHDF5Dataset if policy_goal_source(cfg) == "final" else swm.data.HDF5Dataset
+    train_set = dataset_cls(**cfg.data.dataset, transform=None)
     # Read only the physical pixel column; merged cached keys may not exist in HDF5.
     train_set._open()
     pixel_shape = train_set.h5_file["pixels"][0].shape
@@ -261,7 +295,7 @@ def run(cfg):
             "'_train' so the held-out '_eval' split name can be derived"
         )
     eval_kwargs["name"] = eval_kwargs["name"][: -len("_train")] + "_eval"
-    val_set = swm.data.HDF5Dataset(**eval_kwargs, transform=transform)
+    val_set = dataset_cls(**eval_kwargs, transform=transform)
 
     rnd_gen = torch.Generator().manual_seed(cfg.seed)
     train_loader = torch.utils.data.DataLoader(
@@ -302,7 +336,7 @@ def run(cfg):
             arch=policy_cfg.get("arch", "mlp"),
             depth=int(policy_cfg.get("depth", 2)),
             input=policy_cfg.get("input", "endpoints"),
-            use_goal=bool(policy_cfg.get("goal_offset", 0)),
+            use_goal=policy_goal_source(cfg) != "none",
         )
 
     goal_policy = None

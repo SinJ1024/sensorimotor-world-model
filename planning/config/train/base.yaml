@@ -92,6 +92,7 @@ loss:
     input: endpoints     # endpoints: the window latents | delta: their differences z_{i+1}-z_i (Delta-JEPA style; mlp/resmlp)
     goal_offset: 0       # G > 0: also condition on the hindsight goal z_{t+1+G} (delta input: z_g - z_{t+1}); G=1 == inverse on (z_{t+1}, z_{t+2})
     goal_offset_max: null  # if set, draw G per sample uniformly from [goal_offset, goal_offset_max]
+    goal_source: offset  # offset: goal = z_{t+1+G} (needs goal_offset > 0) | final: goal = the last frame of the episode
   # Goal-conditioned policy regularizer: a_t = pi(z_t, z_{t+G}) (hindsight goal).
   # Its signal comes from the dynamics, not the behaviour policy; G=1 coincides
   # with the inverse-dynamics head. Independent of inverse/policy, so it can be
