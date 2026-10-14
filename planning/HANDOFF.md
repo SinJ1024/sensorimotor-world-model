@@ -87,6 +87,29 @@ explains why removing a_t helps most there. Decisive next test: swap the behavio
 within one environment (Reacher with the stable_worldmodel SAC ExpertPolicy; TwoRoom with
 uniform random actions).
 
+## 3c. Goal-conditioned and Delta-JEPA policy heads on Reacher (2026-10-14, DelftBlue, seed 0)
+
+Advisor request: give the policy head a goal state, and try Delta-JEPA's displacement input.
+All no-action MLP c2 heads predicting a_{t+1}, lambda 5; goal = the episode's final frame
+(loss.policy.goal_source=final; loss.policy.input=delta feeds dz_t and z_final - z_{t+1}).
+
+| head input | success | eff rank | pred loss | val policy loss |
+|---|---|---|---|---|
+| (z_t, z_{t+1}) (old no-act, 3 seeds) | 12.7 +- 2.5 | 159 | 3e-6 | 0.999 |
+| dz_t (delta) | 4 | 81 | 1.2e-5 | 1.000 |
+| (z_t, z_{t+1}, z_final) | 8 | 159 | 2.1e-5 | 1.000 |
+| **(dz_t, z_final - z_{t+1})** | **33** | **19.6** | **1.1e-3** | **0.993** |
+| inverse (reference) | 71 | 18.2 | 1.3e-3 | - |
+
+Only the combination escapes collapse: its latent statistics match the inverse model's and
+planning is ~4 sd above random (upstream random 13.6 +- 5.1), though far below inverse.
+Hypothesis: differencing hides time-invariant content (background, target) from the head, so
+it cannot be fitted with static features; and z_final - z_{t+1} is a long-horizon
+displacement whose dependence on a_{t+1} is a diluted multi-step inverse signal (val policy
+loss 0.993 = ~0.7% of variance). delta alone has no future state (nothing to predict on
+random data, collapses late: rank 21 at 57% of training -> 81); goal with endpoints lets the
+head read static features. Single seed: confirm with seeds 1, 2 before relying on it.
+
 ## 4. Mechanism (the thesis argument)
 
 * The inverse regularizer's supervision comes from the **dynamics** (a_t leaves a trace in
