@@ -97,7 +97,7 @@ def build_jepa(cfg):
     )
 
 
-def load_jepa_from_run(run_dir: Path, device: str = "cuda"):
+def load_jepa_from_run(run_dir: Path, device: str = "cuda", return_state: bool = False):
     run_dir = Path(run_dir)
     train_cfg = OmegaConf.load(run_dir / "config.yaml")
     model = build_jepa(train_cfg)
@@ -117,6 +117,7 @@ def load_jepa_from_run(run_dir: Path, device: str = "cuda"):
         for k, v in ckpt["state_dict"].items()
         if k.startswith("model.")
     }
+    full_state = dict(state)
     # The paper evaluates the encoder and forward model through CEM.  A run
     # trained with the experimental policy regularizer also stores an auxiliary
     # policy head, but that head is not part of the paper evaluation path.
@@ -135,6 +136,8 @@ def load_jepa_from_run(run_dir: Path, device: str = "cuda"):
         for key, value in state.items()
         if not key.startswith(("policy_model.", "goal_policy."))
     }
+    policy_state = {k: v for k, v in full_state.items()
+                    if k.startswith("policy_model.")} if return_state else None
     model.load_state_dict(state, strict=True)
     if policy_keys or goal_keys:
         print(
@@ -144,6 +147,8 @@ def load_jepa_from_run(run_dir: Path, device: str = "cuda"):
     model = model.to(device).eval()
     model.requires_grad_(False)
     model.interpolate_pos_encoding = True
+    if return_state:
+        return model, train_cfg, policy_state
     return model, train_cfg
 
 
@@ -271,14 +276,27 @@ def evaluate_run(run, cfg, out_dir: Path, dataset, episodes, start_steps):
     elif policy_name == "cem":
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"\n=== Loading {run['name']} from {run['run_dir']} ===")
-        model, train_cfg = load_jepa_from_run(run["run_dir"], device=device)
+        warm_mode = (cfg.get("warmstart") or {}).get("mode")
+        model, train_cfg, policy_state = load_jepa_from_run(run["run_dir"], device=device, return_state=True)
         world = build_world(cfg, train_cfg=train_cfg)
         process = fit_processors(dataset, cfg["dataset"]["keys_to_cache"])
         transform = {
             "pixels": img_transform(cfg["eval"]["img_size"]),
             "goal": img_transform(cfg["eval"]["img_size"]),
         }
-        solver = swm.solver.CEMSolver(model=model, seed=cfg["seed"], **cfg["solver"])
+        if warm_mode:
+            # Optional (not the paper protocol): warm-start CEM with the policy head.
+            from policy_cem import PolicyWarmStartCEM, build_policy_model, train_action_stats
+            embed_dim = train_cfg.wm.get("embed_dim", model.encoder.config.hidden_size)
+            head = build_policy_model(train_cfg, policy_state, embed_dim)
+            solver = PolicyWarmStartCEM(
+                model=model, policy_head=head, train_stats=train_action_stats(train_cfg),
+                eval_scaler=process["action"], mode=warm_mode, seed=cfg["seed"], **cfg["solver"],
+            )
+            run_result["warmstart"] = warm_mode
+            print(f"[{run['name']}] policy warm-start: mode={warm_mode}, CEM n_steps={cfg['solver']['n_steps']}")
+        else:
+            solver = swm.solver.CEMSolver(model=model, seed=cfg["seed"], **cfg["solver"])
         plan_cfg = swm.PlanConfig(**cfg["plan_config"])
         policy = swm.policy.WorldModelPolicy(
             solver=solver, config=plan_cfg, process=process, transform=transform

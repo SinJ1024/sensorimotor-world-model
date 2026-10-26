@@ -86,6 +86,11 @@ def lambda_from_name(name):
     return float(f"{m.group(1)}.{m.group(2) or 0}")
 
 
+# Training set each environment's paper runs use; runs on any other dataset (e.g. the
+# scripted-expert Reacher data) get it appended to their method label.
+TRAIN_DATA = {"tworoom": "tworoom_train", "reacher": "reacher_train",
+              "pusht": "pusht_expert_train", "cube": "cube_single_expert_train"}
+
 def describe_method(cfg):
     """Human label + list of (name, weight) for every active regularizer."""
     inv_w = float(get(cfg, "loss.inverse.weight", 0) or 0)
@@ -167,6 +172,12 @@ def summarize(run, eval_root, budget):
         return r
     r["env"] = env
     r["method"], active = describe_method(cfg)
+    dataset = get(cfg, "data.dataset.name")
+    if dataset and dataset != TRAIN_DATA[env]:
+        r["method"] += f" [data={dataset}]"
+    history = get(cfg, "wm.history_size")
+    if history not in (None, 1):   # official-LeWM-style runs (paper protocol: 1)
+        r["method"] += f" [h={history}]"
     r["lambda"] = "/".join(f"{w:g}" for _, w in active) if active else "0"
     r["bs"] = get(cfg, "loader.batch_size")
     r["num_steps"] = get(cfg, "data.dataset.num_steps")
