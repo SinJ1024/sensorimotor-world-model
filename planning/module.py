@@ -338,7 +338,7 @@ class PolicyModel(nn.Module):
     but can also extract the answer from a poor z (less encoder pressure), so
     always track both policy_loss (down) AND effective_rank (up).
 
-    input = endpoints | delta (mlp/resmlp only for delta and goal)
+    input = endpoints | delta (delta: mlp/resmlp only)
       endpoints : the window latents themselves (z_{t-L+2}, ..., z_{t+1})
       delta     : only their displacements z_{i+1} - z_i (L-1 of them), as in
                   Delta-JEPA's latent-difference action decoder
@@ -347,6 +347,12 @@ class PolicyModel(nn.Module):
       Any goal after t+1 is affected by a_{t+1}, so small G turns the head back
       into an inverse model of a_{t+1} (G=1 is exactly inverse dynamics on
       z_{t+1}, z_{t+2}).
+      mlp/resmlp : z_g is concatenated to the flattened window
+      gru/transformer/mamba : z_g is one more token, placed before the window and
+        projected by its own linear layer (whose bias marks it as the goal); the
+        summary is still read at the last latent z_{t+1}, which sees the goal
+        through the causal attention / the recurrent state. With context=2 and
+        use_action=False the tokens are (z_g, z_t, z_{t+1}).
     """
 
     def __init__(self, embed_dim, action_dim, hidden_dim=256, use_action=True,
@@ -362,9 +368,9 @@ class PolicyModel(nn.Module):
         self.use_goal = bool(use_goal)
         if self.input not in ("endpoints", "delta"):
             raise ValueError(f"Unknown policy input: {self.input!r} (endpoints | delta)")
-        if (self.input == "delta" or self.use_goal) and self.arch not in ("mlp", "resmlp"):
-            raise ValueError("policy input=delta and goal conditioning are implemented for "
-                             f"arch=mlp/resmlp only, got arch={self.arch!r}")
+        if self.input == "delta" and self.arch not in ("mlp", "resmlp"):
+            raise ValueError("policy input=delta is implemented for arch=mlp/resmlp only, "
+                             f"got arch={self.arch!r}")
         if self.input == "delta" and self.context < 2 and not self.use_goal:
             raise ValueError("policy input=delta needs context >= 2 (or a goal): "
                              "a single latent has no displacement")
@@ -384,6 +390,8 @@ class PolicyModel(nn.Module):
             self.out = nn.Linear(hidden_dim, out_dim)
         elif self.arch in ("gru", "transformer", "mamba"):
             self.token = nn.Linear(embed_dim + act_in, hidden_dim)
+            if self.use_goal:
+                self.goal_token = nn.Linear(embed_dim, hidden_dim)
             if self.arch == "gru":
                 self.seq = nn.GRU(hidden_dim, hidden_dim, num_layers=depth, batch_first=True)
             elif self.arch == "transformer":
@@ -426,16 +434,16 @@ class PolicyModel(nn.Module):
                 a_pad = F.pad(a_window, (0, 0, 0, 1))    # zero for the last latent
                 tok_in = torch.cat([z_window, a_pad], dim=-1)
             x = self.token(tok_in)                       # (B, L, H)
+            if self.arch == "transformer":
+                x = x + self.pos[:, :L]
+            if self.use_goal:                             # goal token first: (B, 1 + L, H)
+                x = torch.cat([self.goal_token(z_goal).unsqueeze(1), x], dim=1)
             if self.arch == "gru":
                 x, _ = self.seq(x)
-            elif self.arch == "transformer":
-                x = x + self.pos[:, :L]
-                for blk in self.seq:
-                    x = blk(x)
             else:
                 for blk in self.seq:
                     x = blk(x)
-            h = x[:, -1]                                  # last-token summary
+            h = x[:, -1]                                  # last-token summary (z_{t+1})
         return self.out(h).reshape(B, self.num_future, self.action_dim)
 
 
