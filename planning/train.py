@@ -70,6 +70,52 @@ class FinalGoalHDF5Dataset(swm.data.HDF5Dataset):
         return steps
 
 
+class OffsetGoalHDF5Dataset(swm.data.HDF5Dataset):
+    """HDF5Dataset whose samples also carry, as ``goal_pixels``, the frame that lies
+    ``goal_offset`` frames after the last context frame (clip index
+    ``context - 1 + goal_offset``), without loading the frames in between
+    (loss.policy.goal_source=offset with loss.policy.goal_frame_only=true).
+
+    The clip keeps its short length. Its valid start positions are those of a clip
+    long enough to contain the goal frame, so the samples are the same as with the
+    dense clip (num_steps = context + goal_offset), where every frame up to the goal
+    is loaded and encoded.
+
+    ``clip_frames`` (loss.policy.goal_clip_frames) keeps only the start positions at
+    which a clip of that many frames fits in the episode. Runs that differ in
+    goal_offset and share clip_frames = context + their largest offset train on the
+    same clips for the same number of steps; only the goal frame differs."""
+
+    def __init__(self, *args, goal_offset, context=2, clip_frames=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.goal_offset = int(goal_offset)
+        if self.goal_offset < 1:
+            raise ValueError("OffsetGoalHDF5Dataset needs goal_offset >= 1")
+        self.goal_index = int(context) - 1 + self.goal_offset  # in frames from the clip start
+        frames = max(self.num_steps, self.goal_index + 1)
+        if clip_frames is not None:
+            if int(clip_frames) < frames:
+                raise ValueError(
+                    f"goal_clip_frames={clip_frames} is too short for goal_offset={self.goal_offset} "
+                    f"with context={context} and num_steps={self.num_steps}; need >= {frames}"
+                )
+            frames = int(clip_frames)
+        need = frames * self.frameskip
+        self.clip_indices = [
+            (ep, start)
+            for ep, length in enumerate(self.lengths)
+            if length >= need
+            for start in range(length - need + 1)
+        ]
+
+    def __getitem__(self, idx):
+        steps = super().__getitem__(idx)
+        ep_idx, start = self.clip_indices[idx]
+        row = start + self.goal_index * self.frameskip
+        steps["goal_pixels"] = self._load_slice(ep_idx, row, row + 1)["pixels"][0]
+        return steps
+
+
 def policy_goal_source(cfg) -> str:
     """'final' (episode's last frame), 'offset' (z_{t+1+G}) or 'none'."""
     pol = cfg.loss.get("policy", {})
@@ -78,6 +124,19 @@ def policy_goal_source(cfg) -> str:
     if str(pol.get("goal_source", "offset")) == "final":
         return "final"
     return "offset" if int(pol.get("goal_offset", 0) or 0) else "none"
+
+
+def policy_goal_frame_only(cfg) -> int:
+    """The goal offset G when the offset goal is loaded as one extra frame
+    (loss.policy.goal_frame_only with a fixed goal_offset), else 0."""
+    pol = cfg.loss.get("policy", {})
+    if policy_goal_source(cfg) != "offset" or not pol.get("goal_frame_only", False):
+        return 0
+    g_lo = int(pol.get("goal_offset", 0) or 0)
+    g_hi = int(pol.get("goal_offset_max") or g_lo)
+    if g_hi != g_lo:
+        raise ValueError("loss.policy.goal_frame_only needs a fixed goal_offset (no goal_offset_max)")
+    return g_lo
 
 
 class SchedulerConfigurationGuard(pl.Callback):
@@ -122,9 +181,10 @@ def forward_step(self, batch, stage, cfg):
     required_steps = history_size + 1
 
     batch["action"] = torch.nan_to_num(batch["action"], 0.0)
-    # The episode's final frame (goal_source=final) is encoded in the same pass as
-    # the clip, so the projector's BatchNorm sees one batch, then split off.
-    goal_final = policy_goal_source(cfg) == "final"
+    # A goal frame that the dataset loads on its own (goal_source=final, or a fixed
+    # goal_offset with goal_frame_only) is encoded in the same pass as the clip, so the
+    # projector's BatchNorm sees one batch, then split off.
+    goal_final = policy_goal_source(cfg) == "final" or policy_goal_frame_only(cfg) > 0
     if goal_final:
         gp = batch["goal_pixels"]
         batch["pixels"] = torch.cat([batch["pixels"], gp.unsqueeze(1) if gp.ndim == 4 else gp], dim=1)
@@ -249,7 +309,9 @@ def run(cfg):
         policy_steps = L_ctx + int(policy_cfg.get("num_future", 1)) - 1
         # A hindsight goal z_{t+1+G} sits at clip index L-1+G, so the clip needs L+G frames.
         g_max = int(policy_cfg.get("goal_offset_max") or policy_cfg.get("goal_offset", 0) or 0)
-        if g_max and str(policy_cfg.get("goal_source", "offset")) != "final":
+        # goal_frame_only loads that frame separately, so the clip stays short.
+        dense_goal = str(policy_cfg.get("goal_source", "offset")) != "final"
+        if g_max and dense_goal and not policy_goal_frame_only(cfg):
             policy_steps = max(policy_steps, L_ctx + g_max)
     else:
         policy_steps = 0
@@ -267,7 +329,18 @@ def run(cfg):
         if current_steps < required_steps:
             cfg.data.dataset.num_steps = required_steps
 
-    dataset_cls = FinalGoalHDF5Dataset if policy_goal_source(cfg) == "final" else swm.data.HDF5Dataset
+    goal_frame = policy_goal_frame_only(cfg)
+    if policy_goal_source(cfg) == "final":
+        dataset_cls = FinalGoalHDF5Dataset
+    elif goal_frame:
+        dataset_cls = partial(
+            OffsetGoalHDF5Dataset,
+            goal_offset=goal_frame,
+            context=int(policy_cfg.get("context", 2)),
+            clip_frames=policy_cfg.get("goal_clip_frames"),
+        )
+    else:
+        dataset_cls = swm.data.HDF5Dataset
     train_set = dataset_cls(**cfg.data.dataset, transform=None)
     # Read only the physical pixel column; merged cached keys may not exist in HDF5.
     train_set._open()
